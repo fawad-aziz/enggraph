@@ -34,7 +34,12 @@ python -m venv .venv
 cp .env.example .env  # fill values; POSTGRES_DSN points at your Postgres
 .venv/Scripts/python -m uvicorn enggraph.main:app --reload --port 8000  # from backend/
 .venv/Scripts/python -m enggraph.worker
+.venv/Scripts/python -m enggraph.mcp http   # read-only MCP tools on MCP_PORT (localhost)
+.venv/Scripts/python -m enggraph.mcp stdio  # stdio: launched by the MCP client
 ```
+
+See `docs/mcp-setup.md` for the MCP transports, client configuration, and the
+credentials each transport needs.
 
 3. Frontend:
 

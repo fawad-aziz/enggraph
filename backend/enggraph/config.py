@@ -33,7 +33,13 @@ class Settings(BaseSettings):
     max_results: int = Field(200, alias="ENGGRAPH_MAX_RESULTS", ge=1, le=1000)
     session_ttl_hours: int = Field(12, alias="ENGGRAPH_SESSION_TTL_HOURS", ge=1, le=72)
     backend_port: int = Field(8000, alias="BACKEND_PORT")
+    mcp_host: str = Field("127.0.0.1", alias="MCP_HOST")
     mcp_port: int = Field(8100, alias="MCP_PORT")
+    # Extra Host/Origin values a client presents when the server is reached through
+    # something that is not its own bind address — a container's published port, a
+    # proxy in front. Comma separated; the MCP transport matches `host:*` patterns.
+    mcp_allowed_hosts: str = Field("", alias="MCP_ALLOWED_HOSTS")
+    mcp_allowed_origins: str = Field("", alias="MCP_ALLOWED_ORIGINS")
 
 
 def load_settings() -> Settings:
