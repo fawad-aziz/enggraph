@@ -80,6 +80,59 @@ def commit_author_identity(commit_raw: dict) -> dict:
     }
 
 
+def work_item_rows(
+    org: str,
+    project_name: str,
+    work_items: list[dict],
+    observed_at: str,
+) -> tuple[list[NodeUpsert], list[EdgeUpsert]]:
+    """WorkItem nodes + PARENT_OF edges, for one project's fetched items.
+
+    Shared by the full snapshot path and incremental sync (Changes API).
+    Parent links are emitted only when the parent was in the same fetch, so
+    no edge ever points at a node we did not create.
+    """
+    fetched_ids = {str(wi.get("id")) for wi in work_items}
+    nodes: list[NodeUpsert] = []
+    for wi in work_items:
+        wi_source_id = str(wi.get("id"))
+        fields = wi.get("fields") or {}
+        props = {"organizationId": org, "sourceId": wi_source_id, "lastSeenAt": observed_at}
+        for ado_field, prop in WORK_ITEM_FIELDS.items():
+            props[prop] = fields.get(ado_field)
+        props["sourceUrl"] = wi.get("url")
+        nodes.append(
+            NodeUpsert(
+                label="WorkItem",
+                id=workitem_id(org, project_name, wi_source_id),
+                props=props,
+                organization_id=org,
+            )
+        )
+    edges: list[EdgeUpsert] = []
+    for wi in work_items:
+        parent = (wi.get("fields") or {}).get("System.Parent")
+        if parent is None or str(parent) not in fetched_ids:
+            continue
+        edges.append(
+            EdgeUpsert(
+                rel_type="PARENT_OF",
+                src_label="WorkItem",
+                src_id=workitem_id(org, project_name, str(parent)),
+                dst_label="WorkItem",
+                dst_id=workitem_id(org, project_name, str(wi.get("id"))),
+                props={
+                    "provenanceType": "PROVIDER_EXPLICIT",
+                    "sourceSystem": SOURCE_SYSTEM,
+                    "sourceRecordId": f"parent:{parent}:{wi.get('id')}",
+                    "observedAt": observed_at,
+                },
+                organization_id=org,
+            )
+        )
+    return nodes, edges
+
+
 def normalize_project(
     org: str,
     project_raw: dict,
@@ -278,27 +331,12 @@ def normalize_project(
                 edge("CHANGES", "PullRequest", pr_id, "Commit", cid,
                      f"pr-changes:{repo_source_id}:{pr_number}:{sha}")
 
-    fetched_wi_ids = {str(wi.get("id")) for wi in work_items}
-    for wi in work_items:
-        wi_source_id = str(wi.get("id"))
-        wid = workitem_id(org, project_name, wi_source_id)
-        fields = wi.get("fields") or {}
-        props = {"organizationId": org, "sourceId": wi_source_id,
-                "lastSeenAt": observed_at}
-        for ado_field, prop in WORK_ITEM_FIELDS.items():
-            props[prop] = fields.get(ado_field)
-        props["sourceUrl"] = wi.get("url")
-        add(NodeUpsert(label="WorkItem", id=wid, props=props, organization_id=org))
-
-    # parent links only between fetched work items (no dangling references)
-    for wi in work_items:
-        parent = (wi.get("fields") or {}).get("System.Parent")
-        if parent is not None and str(parent) in fetched_wi_ids:
-            edge("PARENT_OF", "WorkItem",
-                 workitem_id(org, project_name, str(parent)),
-                 "WorkItem",
-                 workitem_id(org, project_name, str(wi.get("id"))),
-                 f"parent:{parent}:{wi.get('id')}")
+    wi_nodes, wi_edges = work_item_rows(org, project_name, work_items, observed_at)
+    for node in wi_nodes:
+        add(node)
+    # parent edges reference only nodes created in this pass (checked inside
+    # work_item_rows), so they are safe to append directly.
+    edges.extend(wi_edges)
 
     for (repo_source_id, pr_number), wi_ids in pr_links.items():
         pr_id = pullrequest_id(org, project_name, repo_source_id, pr_number)

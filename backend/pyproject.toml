@@ -34,6 +34,8 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# tests/ helpers (shared ADO fixtures) are imported by test modules
+pythonpath = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
@@ -47,6 +49,10 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
 ignore = ["B008"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["enggraph"]
+known-local-folder = ["tests"]
 
 [tool.mypy]
 python_version = "3.12"

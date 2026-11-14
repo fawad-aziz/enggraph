@@ -7,20 +7,14 @@ fallbacks included), not hand-built rows.
 
 from __future__ import annotations
 
-import json
-import pathlib
-
 import httpx
 import pytest
+from ado_fixtures import OBSERVED, ORG, PAT, PROJECT, handler, load
 
 from enggraph.connectors.azure_devops.client import AdoClient
 from enggraph.connectors.azure_devops.connector import fetch_changes, fetch_project_graph
 from enggraph.graph.model import EdgeUpsert, NodeUpsert
 
-FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "ado"
-ORG = "acme"
-PAT = "pat-abc123def456"
-OBSERVED = "2026-11-01T00:00:00Z"
 C = "ado:acme:Commerce"
 
 IDS = {
@@ -59,41 +53,6 @@ EXPECTED_EDGES = {
     ("LINKED_TO", IDS["pr"], IDS["wi43"]),
     ("PARENT_OF", IDS["wi42"], IDS["wi43"]),
 }
-
-
-def load(name: str) -> dict:
-    if not name.endswith(".json"):
-        name = f"{name}.json"
-    return json.loads((FIXTURES / name).read_text())
-
-
-def handler(request: httpx.Request) -> httpx.Response:
-    """Dispatch fixture payloads by ADO endpoint (base_url adds the /acme prefix)."""
-    path = request.url.path
-    assert path.startswith("/acme"), f"unexpected base path: {path}"
-    path = path.removeprefix("/acme")
-    if request.method == "POST":
-        return httpx.Response(200, json=load("wiql.json"))
-    if path.endswith("/workItemReferences"):
-        token = request.url.params.get("continuationToken")
-        body = load("pr_wi_p2") if token == "w2" else load("pr_wi_p1")
-        return httpx.Response(200, json=body)
-    if path.endswith("/pullrequests"):
-        return httpx.Response(200, json=load("prs.json"))
-    if path.endswith("/commits"):
-        skip = int(request.url.params.get("searchCriteria[skip]", "0"))
-        return httpx.Response(200, json=load("commits_p1" if skip == 0 else "commits_p2"))
-    if path.endswith("/members"):
-        return httpx.Response(200, json=load("members.json"))
-    if path.endswith("/teams"):
-        return httpx.Response(200, json=load("teams.json"))
-    if path.endswith("/repositories"):
-        return httpx.Response(200, json=load("repos.json"))
-    if path.endswith("/workitems"):
-        return httpx.Response(200, json=load("workitems.json"))
-    if path.endswith("/changes"):
-        return httpx.Response(200, json=load("changes.json"))
-    raise AssertionError(f"unhandled fixture path: {path}")
 
 
 @pytest.fixture(scope="module")
@@ -213,8 +172,11 @@ def test_changes_api_contract_for_incremental_sync():
         return handler(request)
 
     client = AdoClient(ORG, PAT, page_size=2, transport=httpx.MockTransport(recording))
-    body = fetch_changes(client, "Commerce", 5)
-    params = dict(seen[0].url.params)
+    body = fetch_changes(client, PROJECT, 5)
+    request = seen[0]
+    params = dict(request.url.params)
+    # Changes API is project-scoped: the project must appear in the path.
+    assert request.url.path.removeprefix("/acme") == f"/{PROJECT}/_apis/wit/changes"
     assert params["version"] == "5"
     assert params["top"] == "2"
     assert params["api-version"] == "7.2"

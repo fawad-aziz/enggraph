@@ -90,7 +90,7 @@ def fetch_changes(client: AdoClient, project: str, version: int) -> dict:
     advances to nextVersion only after the page is persisted.
     """
     body = client.request(
-        "/_apis/wit/changes", {"version": version, "top": client.page_size}
+        f"/{project}/_apis/wit/changes", {"version": version, "top": client.page_size}
     )
     return body if isinstance(body, dict) else {"changes": []}
 
