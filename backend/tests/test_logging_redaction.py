@@ -28,8 +28,13 @@ def test_redact_pat_and_token_key_value_pairs():
 
 def test_filter_redacts_sensitive_record_fields():
     record = logging.LogRecord(
-        name="test", level=logging.INFO, pathname="", lineno=0,
-        msg="ok", args=(), exc_info=None,
+        name="test",
+        level=logging.INFO,
+        pathname="",
+        lineno=0,
+        msg="ok",
+        args=(),
+        exc_info=None,
     )
     record.__dict__["pat"] = "supersecret"
     record.__dict__["authorization"] = "Bearer xyz"
@@ -40,8 +45,13 @@ def test_filter_redacts_sensitive_record_fields():
 
 def test_filter_redacts_message():
     record = logging.LogRecord(
-        name="test", level=logging.INFO, pathname="", lineno=0,
-        msg="sync failed pat=SECRET999", args=(), exc_info=None,
+        name="test",
+        level=logging.INFO,
+        pathname="",
+        lineno=0,
+        msg="sync failed pat=SECRET999",
+        args=(),
+        exc_info=None,
     )
     RedactionFilter().filter(record)
     assert "SECRET999" not in record.getMessage()

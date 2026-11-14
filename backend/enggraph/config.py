@@ -31,12 +31,16 @@ class Settings(BaseSettings):
     azure_devops_organization: str = Field("", alias="AZURE_DEVOPS_ORGANIZATION")
     max_depth: int = Field(4, alias="ENGGRAPH_MAX_DEPTH", ge=1, le=10)
     max_results: int = Field(200, alias="ENGGRAPH_MAX_RESULTS", ge=1, le=1000)
+    session_ttl_hours: int = Field(12, alias="ENGGRAPH_SESSION_TTL_HOURS", ge=1, le=72)
     backend_port: int = Field(8000, alias="BACKEND_PORT")
     mcp_port: int = Field(8100, alias="MCP_PORT")
 
 
 def load_settings() -> Settings:
-    return Settings()
+    # Every field has a default, so `Settings()` is valid at runtime: values come
+    # from the environment/.env. The mypy pydantic plugin types alias-named fields
+    # as required constructor arguments, so the bare call is annotated as allowed.
+    return Settings()  # type: ignore[call-arg]
 
 
 def validate_runtime(settings: Settings) -> list[str]:

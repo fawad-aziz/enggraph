@@ -5,8 +5,12 @@ from enggraph.config import Settings, validate_runtime
 
 def test_demo_mode_ok_when_secret_present():
     s = Settings(
-        mode="demo", postgres_dsn="sqlite://", neo4j_uri="bolt://h:7687",
-        neo4j_user="neo4j", neo4j_password="pw", session_secret="x" * 32,
+        mode="demo",
+        postgres_dsn="sqlite://",
+        neo4j_uri="bolt://h:7687",
+        neo4j_user="neo4j",
+        neo4j_password="pw",
+        session_secret="x" * 32,
     )
     assert validate_runtime(s) == []
 

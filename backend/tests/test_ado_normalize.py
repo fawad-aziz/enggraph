@@ -69,8 +69,22 @@ def node_map(nodes: list[NodeUpsert]) -> dict[str, NodeUpsert]:
 
 def test_canonical_ids_are_used(graph):
     ids = set(node_map(graph[0]))
-    for key in ("org", "project", "repo", "team", "dana", "omar", "dana_commit", "omar_commit",
-                "pr", "abc", "def456", "fff", "wi42", "wi43"):
+    for key in (
+        "org",
+        "project",
+        "repo",
+        "team",
+        "dana",
+        "omar",
+        "dana_commit",
+        "omar_commit",
+        "pr",
+        "abc",
+        "def456",
+        "fff",
+        "wi42",
+        "wi43",
+    ):
         assert IDS[key] in ids, f"missing canonical node {IDS[key]}"
 
 

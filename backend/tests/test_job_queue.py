@@ -36,10 +36,15 @@ def session(engine) -> Session:
     Base.metadata.create_all(engine)
     maker = sessionmaker(engine, class_=Session, expire_on_commit=False)
     session = maker()
-    session.add(ConnectorConfig(
-        id="conn-1", organization_id=ORG, ado_organization=ORG,
-        pat_secret_ref="AZURE_DEVOPS_PAT", project_names=["Commerce"],
-    ))
+    session.add(
+        ConnectorConfig(
+            id="conn-1",
+            organization_id=ORG,
+            ado_organization=ORG,
+            pat_secret_ref="AZURE_DEVOPS_PAT",
+            project_names=["Commerce"],
+        )
+    )
     session.commit()
     yield session
     session.close()
@@ -47,8 +52,11 @@ def session(engine) -> Session:
 
 def queue(session, mode="FULL", parent=None):
     return enqueue_job(
-        session, organization_id=ORG, connector_config_id="conn-1",
-        mode=mode, parent_job_id=parent,
+        session,
+        organization_id=ORG,
+        connector_config_id="conn-1",
+        mode=mode,
+        parent_job_id=parent,
     )
 
 
@@ -56,9 +64,12 @@ def test_enqueue_queues_a_new_job(session):
     job = queue(session)
     assert job.state == "QUEUED"
     assert job.attempt == 0
-    assert session.execute(
-        sa.select(sa.func.count()).select_from(SyncJob).where(SyncJob.state == "QUEUED")
-    ).scalar() == 1
+    assert (
+        session.execute(
+            sa.select(sa.func.count()).select_from(SyncJob).where(SyncJob.state == "QUEUED")
+        ).scalar()
+        == 1
+    )
 
 
 def test_invalid_mode_is_rejected(session):
@@ -90,9 +101,7 @@ def test_claim_is_exclusive(session):
 def test_losing_side_of_a_race_hits_the_state_guard(session):
     """The guarded update, not the SELECT, decides who owns a job."""
     job = queue(session)
-    seen_id = session.execute(
-        select(SyncJob.id).where(SyncJob.state == "QUEUED")
-    ).scalar_one()
+    seen_id = session.execute(select(SyncJob.id).where(SyncJob.state == "QUEUED")).scalar_one()
     assert seen_id == job.id
     claim_next_job(session, "worker-b")  # lands between A's select and update
     result = session.execute(
@@ -109,9 +118,11 @@ def test_events_are_sequenced_and_redacted(session):
     record_event(session, job, "start", "mode=FULL projects=1")
     credentials = base64.b64encode(f":{PAT}".encode()).decode()
     record_event(session, job, "fetch", f"Authorization: Basic {credentials}")
-    events = session.execute(
-        select(JobEvent).where(JobEvent.job_id == job.id).order_by(JobEvent.seq)
-    ).scalars().all()
+    events = (
+        session.execute(select(JobEvent).where(JobEvent.job_id == job.id).order_by(JobEvent.seq))
+        .scalars()
+        .all()
+    )
     assert [e.seq for e in events] == [1, 2]
     assert [e.stage for e in events] == ["start", "fetch"]
     assert PAT not in events[1].message
@@ -135,9 +146,11 @@ def test_retry_creates_a_linked_job_with_a_new_attempt(session):
     assert retry.state == "QUEUED"
     assert retry.attempt == original.attempt + 1
     assert retry.parent_job_id == original.id
-    audit = session.execute(
-        select(AuditRecord).where(AuditRecord.action == "sync.retry")
-    ).scalars().all()
+    audit = (
+        session.execute(select(AuditRecord).where(AuditRecord.action == "sync.retry"))
+        .scalars()
+        .all()
+    )
     assert audit[0].target == original.id
     assert audit[0].details["new_job_id"] == retry.id
 
@@ -163,8 +176,12 @@ def test_cancel_only_applies_to_queued_or_running(session):
 
 def test_audit_details_never_store_secrets(session):
     audit_record(
-        session, organization_id=ORG, actor="user-1", action="connector.update",
-        target="conn-1", details={"pat": PAT, "page_size": 100},
+        session,
+        organization_id=ORG,
+        actor="user-1",
+        action="connector.update",
+        target="conn-1",
+        details={"pat": PAT, "page_size": 100},
     )
     stored = session.execute(select(AuditRecord)).scalars().all()[0]
     assert PAT not in str(stored.details)

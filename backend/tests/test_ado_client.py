@@ -190,19 +190,25 @@ def test_empty_pat_is_config_error():
         AdoClient("acme", "   ")
 
 
-def test_validate_connection_reports_sample_projects():
+def test_validate_connection_reports_first_page_only():
+    """Validation is a credential/reachability check: exactly one request.
+
+    A handler that serves page 1 and then fails proves no continuation request
+    is made, so validation never scales with organization size.
+    """
     state = {"calls": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
         state["calls"] += 1
-        body = load("projects_p1") if state["calls"] == 1 else load("projects_p2")
-        return httpx.Response(200, json=body)
+        if state["calls"] > 1:
+            raise AssertionError("validation must not page past the first page")
+        return httpx.Response(200, json=load("projects_p1"))
 
     report = validate_connection("acme", PAT, transport=httpx.MockTransport(handler))
+    assert report["organization"] == "acme"
     assert report["reachable"] is True
-    assert "Commerce" in report["sampleProjectNames"]
-    assert "Ops" in report["sampleProjectNames"]  # second page consumed
-    assert state["calls"] == 2
+    assert report["sampleProjectNames"] == ["Commerce", "Data"]
+    assert state["calls"] == 1
 
 
 def test_repeated_continuation_token_is_a_bounded_failure():

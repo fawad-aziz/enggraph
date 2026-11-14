@@ -44,8 +44,10 @@ def upgrade() -> None:
         sa.Column("organization_id", sa.String(128), nullable=False),
         sa.Column("is_active", sa.Boolean(), nullable=False),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.func.now(), nullable=False,
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("id", name="pk_users"),
     )
@@ -58,8 +60,10 @@ def upgrade() -> None:
         sa.Column("user_id", sa.String(36), nullable=False),
         sa.Column("token_hash", sa.String(64), nullable=False),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.func.now(), nullable=False,
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
         ),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id", name="pk_sessions"),
@@ -77,18 +81,24 @@ def upgrade() -> None:
         sa.Column("display_name", sa.String(200), nullable=False),
         sa.Column("max_depth", sa.Integer(), nullable=False),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.func.now(), nullable=False,
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True),
-            server_default=sa.func.now(), nullable=False,
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("id", name="pk_organization_configs"),
     )
     op.create_index(
-        "ix_organization_configs_organization_id", "organization_configs",
-        ["organization_id"], unique=True,
+        "ix_organization_configs_organization_id",
+        "organization_configs",
+        ["organization_id"],
+        unique=True,
     )
 
     op.create_table(
@@ -104,18 +114,24 @@ def upgrade() -> None:
         sa.Column("last_validated_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("last_validation_ok", sa.Boolean(), nullable=True),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.func.now(), nullable=False,
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True),
-            server_default=sa.func.now(), nullable=False,
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("id", name="pk_connector_configs"),
     )
     op.create_index(
-        "ix_connector_configs_organization_id", "connector_configs",
-        ["organization_id"], unique=False,
+        "ix_connector_configs_organization_id",
+        "connector_configs",
+        ["organization_id"],
+        unique=False,
     )
 
     op.create_table(
@@ -135,22 +151,30 @@ def upgrade() -> None:
         sa.Column("projects_planned", sa.Integer(), nullable=False),
         sa.Column("error", sa.Text(), nullable=True),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.func.now(), nullable=False,
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
         ),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id", name="pk_sync_jobs"),
         sa.ForeignKeyConstraint(
-            ["connector_config_id"], ["connector_configs.id"],
-            name="fk_sync_jobs_connector_config_id", ondelete="CASCADE",
+            ["connector_config_id"],
+            ["connector_configs.id"],
+            name="fk_sync_jobs_connector_config_id",
+            ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
-            ["requested_by"], ["users.id"], name="fk_sync_jobs_requested_by",
+            ["requested_by"],
+            ["users.id"],
+            name="fk_sync_jobs_requested_by",
             ondelete="SET NULL",
         ),
         sa.ForeignKeyConstraint(
-            ["parent_job_id"], ["sync_jobs.id"], name="fk_sync_jobs_parent_job_id",
+            ["parent_job_id"],
+            ["sync_jobs.id"],
+            name="fk_sync_jobs_parent_job_id",
             ondelete="SET NULL",
         ),
     )
@@ -167,8 +191,10 @@ def upgrade() -> None:
         sa.Column("level", sa.String(16), nullable=False),
         sa.Column("message", sa.Text(), nullable=False),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.func.now(), nullable=False,
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("id", name="pk_job_events"),
         sa.UniqueConstraint("job_id", "seq", name="uq_job_events_job_seq"),
@@ -189,28 +215,35 @@ def upgrade() -> None:
         sa.Column("last_full_pass_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("last_full_pass_job_id", sa.String(36), nullable=True),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True),
-            server_default=sa.func.now(), nullable=False,
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("id", name="pk_sync_checkpoints"),
         sa.UniqueConstraint(
-            "organization_id", "connector_config_id", "scope",
+            "organization_id",
+            "connector_config_id",
+            "scope",
             name="uq_sync_checkpoints_org_connector_scope",
         ),
         sa.ForeignKeyConstraint(
-            ["connector_config_id"], ["connector_configs.id"],
-            name="fk_sync_checkpoints_connector_config_id", ondelete="CASCADE",
+            ["connector_config_id"],
+            ["connector_configs.id"],
+            name="fk_sync_checkpoints_connector_config_id",
+            ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
-            ["last_full_pass_job_id"], ["sync_jobs.id"],
-            name="fk_sync_checkpoints_last_full_pass_job_id", ondelete="SET NULL",
+            ["last_full_pass_job_id"],
+            ["sync_jobs.id"],
+            name="fk_sync_checkpoints_last_full_pass_job_id",
+            ondelete="SET NULL",
         ),
     )
+    op.create_index("ix_sync_checkpoints_organization_id", "sync_checkpoints", ["organization_id"])
     op.create_index(
-        "ix_sync_checkpoints_organization_id", "sync_checkpoints", ["organization_id"]
-    )
-    op.create_index(
-        "ix_sync_checkpoints_connector_config_id", "sync_checkpoints",
+        "ix_sync_checkpoints_connector_config_id",
+        "sync_checkpoints",
         ["connector_config_id"],
     )
 
@@ -223,8 +256,10 @@ def upgrade() -> None:
         sa.Column("target", sa.String(160), nullable=False),
         sa.Column("details", sa.JSON(), nullable=False),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True),
-            server_default=sa.func.now(), nullable=False,
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("id", name="pk_audit_records"),
     )

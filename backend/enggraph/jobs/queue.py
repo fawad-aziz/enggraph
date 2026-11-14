@@ -13,8 +13,10 @@ describes has been persisted (architecture doc §4).
 from __future__ import annotations
 
 import uuid
+from typing import Any, cast
 
 from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from enggraph.logging_setup import SENSITIVE_KEY_NAMES, get_logger, redact
@@ -79,10 +81,13 @@ def claim_next_job(session: Session, worker_id: str) -> SyncJob | None:
     result = session.execute(
         update(SyncJob)
         .where(SyncJob.id == queued_id, SyncJob.state == "QUEUED")
-        .values(state="RUNNING", worker_id=worker_id, started_at=utcnow(),
-                attempt=SyncJob.attempt + 1)
+        .values(
+            state="RUNNING", worker_id=worker_id, started_at=utcnow(), attempt=SyncJob.attempt + 1
+        )
     )
-    if result.rowcount != 1:
+    # `Session.execute` is typed as a plain Result; an ORM bulk UPDATE yields a
+    # CursorResult, which is where `rowcount` lives.
+    if cast(CursorResult[Any], result).rowcount != 1:
         # Another worker claimed it first (state no longer QUEUED).
         session.rollback()
         return None
@@ -185,7 +190,7 @@ def audit_record(
     actor: str,
     action: str,
     target: str,
-    details: dict | None = None,
+    details: dict[str, Any] | None = None,
 ) -> AuditRecord:
     record = AuditRecord(
         id=new_id(),
@@ -200,13 +205,13 @@ def audit_record(
     return record
 
 
-def redact_details(details: dict) -> dict:
+def redact_details(details: dict[str, Any]) -> dict[str, Any]:
     """Redact audit payloads (secrets never enter the audit trail).
 
     Values under a sensitive key are dropped entirely; other string values go
     through `redact()`, which strips credential-shaped text (headers, tokens).
     """
-    result: dict = {}
+    result: dict[str, Any] = {}
     for key, value in details.items():
         if key in SENSITIVE_KEY_NAMES:
             result[key] = "[REDACTED]"
@@ -217,17 +222,21 @@ def redact_details(details: dict) -> dict:
     return result
 
 
-def job_progress(session: Session, job_id: str) -> dict:
+def job_progress(session: Session, job_id: str) -> dict[str, Any]:
     """Job + ordered events, used by the sync-jobs API (milestone 5)."""
     job = session.get(SyncJob, job_id)
     if job is None:
         return {}
-    events = session.execute(
-        select(JobEvent).where(JobEvent.job_id == job_id).order_by(JobEvent.seq)
-    ).scalars().all()
+    events = (
+        session.execute(select(JobEvent).where(JobEvent.job_id == job_id).order_by(JobEvent.seq))
+        .scalars()
+        .all()
+    )
     return {
         "jobId": job.id,
         "organizationId": job.organization_id,
+        "connectorConfigId": job.connector_config_id,
+        "requestedBy": job.requested_by,
         "mode": job.mode,
         "state": job.state,
         "attempt": job.attempt,
@@ -242,7 +251,6 @@ def job_progress(session: Session, job_id: str) -> dict:
         "startedAt": job.started_at,
         "finishedAt": job.finished_at,
         "events": [
-            {"seq": e.seq, "stage": e.stage, "level": e.level, "message": e.message}
-            for e in events
+            {"seq": e.seq, "stage": e.stage, "level": e.level, "message": e.message} for e in events
         ],
     }

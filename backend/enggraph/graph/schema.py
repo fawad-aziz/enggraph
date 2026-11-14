@@ -24,8 +24,7 @@ CONSTRAINT_LABELS = [
 SCHEMA_STATEMENTS: list[str] = [
     # Uniqueness constraints on canonical id (graph model doc §6)
     *[
-        f"CREATE CONSTRAINT {label.lower()}_id IF NOT EXISTS "
-        f"FOR (n:{label}) REQUIRE n.id IS UNIQUE"
+        f"CREATE CONSTRAINT {label.lower()}_id IF NOT EXISTS FOR (n:{label}) REQUIRE n.id IS UNIQUE"
         for label in CONSTRAINT_LABELS
     ],
     # Indexes for frequently searched fields

@@ -3,6 +3,8 @@
 Rules:
 - Canonical IDs are built by graph/ids.py (provider-qualified, colon-safe).
 - Provider source IDs are preserved as `sourceId` (+ sourceUrl where ADO gives one).
+- Every provider-derived node carries `sourceSystem`, so a reader can tell
+  provider data from manual catalog data on the node itself.
 - Every edge carries provenanceType=PROVIDER_EXPLICIT, sourceSystem,
   sourceRecordId, observedAt.
 - Null provider fields are dropped, never written as null over existing values.
@@ -14,6 +16,8 @@ fallback canonical id is `ado:{org}:identity:u.{uniqueName}`.
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 from enggraph.graph.ids import (
     commit_id,
@@ -48,29 +52,44 @@ def provider_org_id(org: str) -> str:
     return organization_id("azure", org)
 
 
-def developer_from_identity(org: str, identity: dict) -> tuple[str, dict] | None:
+def source_value(raw: dict[str, Any], key: str) -> str:
+    """Provider ID fields are required; a missing value fails the normalization.
+
+    `str(raw.get(k))` would turn a missing value into the string "None" and mint
+    a canonical id that looks real, so the absence is raised, not encoded.
+    """
+    value = raw.get(key)
+    if value is None:
+        raise ValueError(f"provider payload is missing {key!r}")
+    return str(value)
+
+
+def developer_from_identity(
+    org: str, identity: dict[str, Any]
+) -> tuple[str, dict[str, Any]] | None:
     """(canonical id, developer props) from an ADO identity block."""
     if not identity:
         return None
     ident = identity.get("id")
     unique = identity.get("uniqueName")
     if ident:
-        node_id = identity_id(org, ident)
+        node_id = identity_id(org, str(ident))
     elif unique:
         node_id = identity_id(org, f"u.{unique}")
     else:
         return None
-    props = {
+    props: dict[str, Any] = {
         "displayName": identity.get("displayName"),
         "uniqueName": unique,
         "organizationId": org,
+        "sourceSystem": SOURCE_SYSTEM,
     }
     if ident:
-        props["sourceId"] = ident
+        props["sourceId"] = str(ident)
     return node_id, props
 
 
-def commit_author_identity(commit_raw: dict) -> dict:
+def commit_author_identity(commit_raw: dict[str, Any]) -> dict[str, Any]:
     """Commits expose author as {name, uniqueName?, date}; normalize to identity."""
     author = commit_raw.get("author") or {}
     return {
@@ -83,7 +102,7 @@ def commit_author_identity(commit_raw: dict) -> dict:
 def work_item_rows(
     org: str,
     project_name: str,
-    work_items: list[dict],
+    work_items: list[dict[str, Any]],
     observed_at: str,
 ) -> tuple[list[NodeUpsert], list[EdgeUpsert]]:
     """WorkItem nodes + PARENT_OF edges, for one project's fetched items.
@@ -97,7 +116,12 @@ def work_item_rows(
     for wi in work_items:
         wi_source_id = str(wi.get("id"))
         fields = wi.get("fields") or {}
-        props = {"organizationId": org, "sourceId": wi_source_id, "lastSeenAt": observed_at}
+        props: dict[str, Any] = {
+            "organizationId": org,
+            "sourceId": wi_source_id,
+            "sourceSystem": SOURCE_SYSTEM,
+            "lastSeenAt": observed_at,
+        }
         for ado_field, prop in WORK_ITEM_FIELDS.items():
             props[prop] = fields.get(ado_field)
         props["sourceUrl"] = wi.get("url")
@@ -135,14 +159,14 @@ def work_item_rows(
 
 def normalize_project(
     org: str,
-    project_raw: dict,
-    repos: list[dict],
-    teams: list[dict],
-    members: list[tuple[str, dict]],
-    prs_by_repo: dict[str, list[dict]],
-    commits_by_repo: dict[str, list[dict]],
+    project_raw: dict[str, Any],
+    repos: list[dict[str, Any]],
+    teams: list[dict[str, Any]],
+    members: list[tuple[str, dict[str, Any]]],
+    prs_by_repo: dict[str, list[dict[str, Any]]],
+    commits_by_repo: dict[str, list[dict[str, Any]]],
     pr_links: dict[tuple[str, int], list[int]],
-    work_items: list[dict],
+    work_items: list[dict[str, Any]],
     observed_at: str,
 ) -> tuple[list[NodeUpsert], list[EdgeUpsert]]:
     """Build canonical rows for one project. Pure function (no network).
@@ -162,8 +186,9 @@ def normalize_project(
         nodes[node.id] = node
         return node
 
-    def edge(rel: str, src_label: str, src: str, dst_label: str, dst: str,
-             source_record_id: str) -> None:
+    def edge(
+        rel: str, src_label: str, src: str, dst_label: str, dst: str, source_record_id: str
+    ) -> None:
         # Reference resolution: never emit an edge touching a missing node.
         if src not in nodes or dst not in nodes:
             return
@@ -185,61 +210,85 @@ def normalize_project(
         )
 
     org_id = provider_org_id(org)
-    add(NodeUpsert(
-        label="Organization", id=org_id,
-        props={"name": org, "provider": SOURCE_SYSTEM, "organizationId": org,
-               "lastSeenAt": observed_at},
-        organization_id=org,
-    ))
-
-    project_source_id = project_raw.get("id")
-    project_name = project_raw.get("name")
-    pid = project_id(org, project_source_id)
-    add(NodeUpsert(
-        label="Project", id=pid,
-        props={
-            "name": project_name,
-            "abbreviation": project_raw.get("abbreviation"),
-            "description": project_raw.get("description"),
-            "state": project_raw.get("state"),
-            "sourceId": project_source_id,
-            "sourceUrl": f"https://dev.azure.com/{org}/{project_name}",
-            "organizationId": org,
-            "lastSeenAt": observed_at,
-        },
-        organization_id=org,
-    ))
-    edge("HAS_PROJECT", "Organization", org_id, "Project", pid,
-         f"project:{project_source_id}")
-
-    for repo in repos:
-        repo_source_id = repo.get("id")
-        rid = repository_id(org, project_name, repo_source_id)
-        add(NodeUpsert(
-            label="Repository", id=rid,
+    add(
+        NodeUpsert(
+            label="Organization",
+            id=org_id,
             props={
-                "name": repo.get("name"),
-                "defaultBranch": repo.get("defaultBranchName"),
-                "sourceId": repo_source_id,
-                "sourceUrl": repo.get("url"),
+                "name": org,
+                "provider": SOURCE_SYSTEM,
+                "organizationId": org,
+                "sourceSystem": SOURCE_SYSTEM,
+                "lastSeenAt": observed_at,
+            },
+            organization_id=org,
+        )
+    )
+
+    project_source_id = source_value(project_raw, "id")
+    project_name = source_value(project_raw, "name")
+    pid = project_id(org, project_source_id)
+    add(
+        NodeUpsert(
+            label="Project",
+            id=pid,
+            props={
+                "name": project_name,
+                "abbreviation": project_raw.get("abbreviation"),
+                "description": project_raw.get("description"),
+                "state": project_raw.get("state"),
+                "sourceId": project_source_id,
+                "sourceUrl": f"https://dev.azure.com/{org}/{project_name}",
+                "sourceSystem": SOURCE_SYSTEM,
                 "organizationId": org,
                 "lastSeenAt": observed_at,
             },
             organization_id=org,
-        ))
-        edge("CONTAINS_REPOSITORY", "Project", pid, "Repository", rid,
-             f"repository:{repo_source_id}")
+        )
+    )
+    edge("HAS_PROJECT", "Organization", org_id, "Project", pid, f"project:{project_source_id}")
+
+    for repo in repos:
+        repo_source_id = source_value(repo, "id")
+        rid = repository_id(org, project_name, repo_source_id)
+        add(
+            NodeUpsert(
+                label="Repository",
+                id=rid,
+                props={
+                    "name": repo.get("name"),
+                    "defaultBranch": repo.get("defaultBranchName"),
+                    "sourceId": repo_source_id,
+                    "sourceUrl": repo.get("url"),
+                    "sourceSystem": SOURCE_SYSTEM,
+                    "organizationId": org,
+                    "lastSeenAt": observed_at,
+                },
+                organization_id=org,
+            )
+        )
+        edge(
+            "CONTAINS_REPOSITORY", "Project", pid, "Repository", rid, f"repository:{repo_source_id}"
+        )
 
     for team in teams:
-        team_source_id = team.get("id")
+        team_source_id = source_value(team, "id")
         tid = team_id(org, team_source_id)
-        add(NodeUpsert(
-            label="Team", id=tid,
-            props={"name": team.get("name"), "description": team.get("description"),
-                   "sourceId": team_source_id, "organizationId": org,
-                   "lastSeenAt": observed_at},
-            organization_id=org,
-        ))
+        add(
+            NodeUpsert(
+                label="Team",
+                id=tid,
+                props={
+                    "name": team.get("name"),
+                    "description": team.get("description"),
+                    "sourceId": team_source_id,
+                    "sourceSystem": SOURCE_SYSTEM,
+                    "organizationId": org,
+                    "lastSeenAt": observed_at,
+                },
+                organization_id=org,
+            )
+        )
         edge("HAS_TEAM", "Organization", org_id, "Team", tid, f"team:{team_source_id}")
 
     for team_source_id, entry in members:
@@ -248,88 +297,151 @@ def normalize_project(
             continue
         dev_id, dev_props = ident
         add(NodeUpsert(label="Developer", id=dev_id, props=dev_props, organization_id=org))
-        edge("HAS_MEMBER", "Team", team_id(org, team_source_id), "Developer", dev_id,
-             f"team-member:{team_source_id}:{(entry.get('identity') or {}).get('id')}")
+        edge(
+            "HAS_MEMBER",
+            "Team",
+            team_id(org, team_source_id),
+            "Developer",
+            dev_id,
+            f"team-member:{team_source_id}:{(entry.get('identity') or {}).get('id')}",
+        )
 
     # commits (canonical nodes; PR-listed commits dedupe against fetched ones)
     for repo_source_id, raw_commits in commits_by_repo.items():
         repo_id = repository_id(org, project_name, repo_source_id)
         for raw in raw_commits:
-            sha = raw.get("commitId")
+            sha = source_value(raw, "commitId")
             cid = commit_id(org, project_name, repo_source_id, sha)
-            add(NodeUpsert(
-                label="Commit", id=cid,
-                props={
-                    "hash": sha,
-                    "message": raw.get("comments"),
-                    "authorDate": (raw.get("author") or {}).get("date"),
-                    "sourceId": sha,
-                    "organizationId": org,
-                    "lastSeenAt": observed_at,
-                },
-                organization_id=org,
-            ))
-            edge("CONTAINS_COMMIT", "Repository", repo_id, "Commit", cid,
-                 f"commit:{repo_source_id}:{sha}")
+            add(
+                NodeUpsert(
+                    label="Commit",
+                    id=cid,
+                    props={
+                        "hash": sha,
+                        "message": raw.get("comments"),
+                        "authorDate": (raw.get("author") or {}).get("date"),
+                        "sourceId": sha,
+                        "sourceSystem": SOURCE_SYSTEM,
+                        "organizationId": org,
+                        "lastSeenAt": observed_at,
+                    },
+                    organization_id=org,
+                )
+            )
+            edge(
+                "CONTAINS_COMMIT",
+                "Repository",
+                repo_id,
+                "Commit",
+                cid,
+                f"commit:{repo_source_id}:{sha}",
+            )
             author = developer_from_identity(org, commit_author_identity(raw))
             if author:
-                add(NodeUpsert(label="Developer", id=author[0], props=author[1],
-                               organization_id=org))
-                edge("AUTHORED", "Developer", author[0], "Commit", cid,
-                     f"commit-author:{repo_source_id}:{sha}")
+                add(
+                    NodeUpsert(
+                        label="Developer", id=author[0], props=author[1], organization_id=org
+                    )
+                )
+                edge(
+                    "AUTHORED",
+                    "Developer",
+                    author[0],
+                    "Commit",
+                    cid,
+                    f"commit-author:{repo_source_id}:{sha}",
+                )
 
     for repo_source_id, prs in prs_by_repo.items():
         repo_id = repository_id(org, project_name, repo_source_id)
         for pr in prs:
-            pr_number = pr.get("pullRequestId")
+            pr_number = source_value(pr, "pullRequestId")
             pr_id = pullrequest_id(org, project_name, repo_source_id, pr_number)
-            add(NodeUpsert(
-                label="PullRequest", id=pr_id,
-                props={
-                    "number": pr_number,
-                    "title": pr.get("title"),
-                    "description": pr.get("description"),
-                    "status": pr.get("status"),
-                    "createdDate": pr.get("createdDate"),
-                    "sourceId": pr_number,
-                    "sourceUrl": pr.get("url"),
-                    "organizationId": org,
-                    "lastSeenAt": observed_at,
-                },
-                organization_id=org,
-            ))
-            edge("CONTAINS_PULL_REQUEST", "Repository", repo_id, "PullRequest", pr_id,
-                 f"pullrequest:{repo_source_id}:{pr_number}")
+            add(
+                NodeUpsert(
+                    label="PullRequest",
+                    id=pr_id,
+                    props={
+                        "number": pr_number,
+                        "title": pr.get("title"),
+                        "description": pr.get("description"),
+                        "status": pr.get("status"),
+                        "createdDate": pr.get("createdDate"),
+                        "sourceId": pr_number,
+                        "sourceUrl": pr.get("url"),
+                        "sourceSystem": SOURCE_SYSTEM,
+                        "organizationId": org,
+                        "lastSeenAt": observed_at,
+                    },
+                    organization_id=org,
+                )
+            )
+            edge(
+                "CONTAINS_PULL_REQUEST",
+                "Repository",
+                repo_id,
+                "PullRequest",
+                pr_id,
+                f"pullrequest:{repo_source_id}:{pr_number}",
+            )
 
             author = developer_from_identity(org, pr.get("createdBy") or {})
             if author:
-                add(NodeUpsert(label="Developer", id=author[0], props=author[1],
-                               organization_id=org))
-                edge("CREATED_BY", "PullRequest", pr_id, "Developer", author[0],
-                     f"pr-creator:{repo_source_id}:{pr_number}")
+                add(
+                    NodeUpsert(
+                        label="Developer", id=author[0], props=author[1], organization_id=org
+                    )
+                )
+                edge(
+                    "CREATED_BY",
+                    "PullRequest",
+                    pr_id,
+                    "Developer",
+                    author[0],
+                    f"pr-creator:{repo_source_id}:{pr_number}",
+                )
 
             for reviewer in pr.get("reviewers") or []:
                 dev = developer_from_identity(org, reviewer)
                 if not dev:
                     continue
-                add(NodeUpsert(label="Developer", id=dev[0], props=dev[1],
-                               organization_id=org))
-                edge("REVIEWED_BY", "PullRequest", pr_id, "Developer", dev[0],
-                     f"pr-reviewer:{repo_source_id}:{pr_number}:{reviewer.get('id')}")
+                add(NodeUpsert(label="Developer", id=dev[0], props=dev[1], organization_id=org))
+                edge(
+                    "REVIEWED_BY",
+                    "PullRequest",
+                    pr_id,
+                    "Developer",
+                    dev[0],
+                    f"pr-reviewer:{repo_source_id}:{pr_number}:{reviewer.get('id')}",
+                )
 
             for raw_commit in pr.get("commits") or []:
-                sha = raw_commit.get("commitId")
+                sha = source_value(raw_commit, "commitId")
                 cid = commit_id(org, project_name, repo_source_id, sha)
                 if cid not in nodes:
-                    add(NodeUpsert(
-                        label="Commit", id=cid,
-                        props={"hash": sha, "message": raw_commit.get("comments"),
-                               "sourceId": sha, "organizationId": org,
-                               "lastSeenAt": observed_at},
-                        organization_id=org,
-                    ))
-                edge("CHANGES", "PullRequest", pr_id, "Commit", cid,
-                     f"pr-changes:{repo_source_id}:{pr_number}:{sha}")
+                    add(
+                        NodeUpsert(
+                            label="Commit",
+                            id=cid,
+                            props={
+                                "hash": sha,
+                                "message": raw_commit.get("comments"),
+                                "sourceId": sha,
+                                "sourceSystem": SOURCE_SYSTEM,
+                                "organizationId": org,
+                                "lastSeenAt": observed_at,
+                            },
+                            organization_id=org,
+                        )
+                    )
+                edge(
+                    "CHANGES",
+                    "PullRequest",
+                    pr_id,
+                    "Commit",
+                    cid,
+                    f"pr-changes:{repo_source_id}:{pr_number}:{sha}",
+                )
 
     wi_nodes, wi_edges = work_item_rows(org, project_name, work_items, observed_at)
     for node in wi_nodes:
@@ -338,11 +450,17 @@ def normalize_project(
     # work_item_rows), so they are safe to append directly.
     edges.extend(wi_edges)
 
-    for (repo_source_id, pr_number), wi_ids in pr_links.items():
-        pr_id = pullrequest_id(org, project_name, repo_source_id, pr_number)
+    for (link_repo, link_pr), wi_ids in pr_links.items():
+        pr_id = pullrequest_id(org, project_name, link_repo, link_pr)
         for wi_id in wi_ids:
             wid = workitem_id(org, project_name, str(wi_id))
-            edge("LINKED_TO", "PullRequest", pr_id, "WorkItem", wid,
-                 f"pr-workitem:{repo_source_id}:{pr_number}:{wi_id}")
+            edge(
+                "LINKED_TO",
+                "PullRequest",
+                pr_id,
+                "WorkItem",
+                wid,
+                f"pr-workitem:{link_repo}:{link_pr}:{wi_id}",
+            )
 
     return list(nodes.values()), edges

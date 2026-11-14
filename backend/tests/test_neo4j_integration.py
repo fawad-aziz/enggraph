@@ -58,8 +58,13 @@ def e(rel: str, src_label: str, src: str, dst_label: str, dst: str, **props) -> 
     props.setdefault("provenanceType", "PROVIDER_EXPLICIT")
     props.setdefault("observedAt", "2026-01-01T00:00:00Z")
     return EdgeUpsert(
-        rel_type=rel, src_label=src_label, src_id=src, dst_label=dst_label,
-        dst_id=dst, props=props, organization_id=ORG,
+        rel_type=rel,
+        src_label=src_label,
+        src_id=src,
+        dst_label=dst_label,
+        dst_id=dst,
+        props=props,
+        organization_id=ORG,
     )
 
 
@@ -88,8 +93,14 @@ def fixture_rows() -> tuple[list, list]:
         e("CONTAINS_COMMIT", "Repository", R, "Commit", C),
         e("AUTHORED", "Developer", "ado:itest:dev1", "Commit", C),
         e("CREATED_BY", "PullRequest", PR, "Developer", "ado:itest:dev1"),
-        e("LINKED_TO", "PullRequest", PR, "WorkItem", "ado:itest:proj1:wi1",
-          sourceRecordId="evi-1"),
+        e(
+            "LINKED_TO",
+            "PullRequest",
+            PR,
+            "WorkItem",
+            "ado:itest:proj1:wi1",
+            sourceRecordId="evi-1",
+        ),
         e("CHANGES", "PullRequest", PR, "Commit", C),
         e("OWNS", "Team", "ado:itest:team1", "Service", SVC, **manual),
         e("IMPLEMENTED_BY", "Service", SVC, "Repository", R, **manual),
@@ -164,29 +175,54 @@ def test_bounded_neighborhood(neo4j_repo):
 def test_paths_explain_results(neo4j_repo):
     # add the CONSUMES edge so svc2 -> api1 <- svc1 forms a 2-edge path
     neo4j_repo.upsert_nodes([n("Service", "enggraph:itest:svc2", name="Beta Service")])
-    neo4j_repo.upsert_edges([
-        e("CONSUMES", "Service", "enggraph:itest:svc2", "API", "enggraph:itest:api1",
-          provenanceType="MANUAL", createdBy="tester"),
-    ])
-    paths = neo4j_repo.find_paths("enggraph:itest:svc2", "enggraph:itest:svc1", ORG,
-                                  ["CONSUMES", "EXPOSES"], 2, 10)
+    neo4j_repo.upsert_edges(
+        [
+            e(
+                "CONSUMES",
+                "Service",
+                "enggraph:itest:svc2",
+                "API",
+                "enggraph:itest:api1",
+                provenanceType="MANUAL",
+                createdBy="tester",
+            ),
+        ]
+    )
+    paths = neo4j_repo.find_paths(
+        "enggraph:itest:svc2", "enggraph:itest:svc1", ORG, ["CONSUMES", "EXPOSES"], 2, 10
+    )
     assert paths
     p = paths[0]
     assert p.nodes[0].id == "enggraph:itest:svc2"
     assert p.nodes[-1].id == "enggraph:itest:svc1"
     assert len(p.edges) == 2
     # bounded depth: depth 1 must not reach a 2-edge target
-    assert neo4j_repo.find_paths("enggraph:itest:svc2", "enggraph:itest:svc1", ORG,
-                                 ["CONSUMES", "EXPOSES"], 1, 10) == []
+    assert (
+        neo4j_repo.find_paths(
+            "enggraph:itest:svc2", "enggraph:itest:svc1", ORG, ["CONSUMES", "EXPOSES"], 1, 10
+        )
+        == []
+    )
 
 
 def test_deactivation_and_demo_reset(neo4j_repo):
-    neo4j_repo.upsert_nodes([
-        n("WorkItem", "ado:itest:proj1:wi-stale", title="Stale item",
-          lastSeenAt="2026-01-01T00:00:00Z"),
-        n("Service", "enggraph:itest:svc-demo", name="Demo service",
-          demoData=True, lastSeenAt="2026-11-01T00:00:00Z"),
-    ])
+    neo4j_repo.upsert_nodes(
+        [
+            n(
+                "WorkItem",
+                "ado:itest:proj1:wi-stale",
+                title="Stale item",
+                lastSeenAt="2026-01-01T00:00:00Z",
+            ),
+            n(
+                "Service",
+                "enggraph:itest:svc-demo",
+                name="Demo service",
+                demoData=True,
+                lastSeenAt="2026-11-01T00:00:00Z",
+            ),
+        ]
+    )
     stale = neo4j_repo.mark_not_seen(ORG, "2026-06-01T00:00:00Z", ["WorkItem"])
     assert stale >= 1
     node = neo4j_repo.get_node("ado:itest:proj1:wi-stale", ORG)

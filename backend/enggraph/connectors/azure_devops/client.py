@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import base64
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -45,7 +46,7 @@ def services_base_url(organization: str) -> str:
     return f"https://dev.azure.com/{organization.strip()}"
 
 
-def _continuation_token(body: dict) -> str | None:
+def _continuation_token(body: dict[str, Any]) -> str | None:
     """Continuation tokens appear in body and/or @nextLink depending on API."""
     raw = body.get("continuationToken")
     if raw:
@@ -55,7 +56,7 @@ def _continuation_token(body: dict) -> str | None:
         query = parse_qs(urlparse(link).query)
         for key in ("$continuationToken", "continuationToken"):
             if key in query:
-                return query[key][0]
+                return str(query[key][0])
     return None
 
 
@@ -99,13 +100,14 @@ class AdoClient:
     def __enter__(self) -> AdoClient:
         return self
 
-    def __exit__(self, *exc) -> None:
+    def __exit__(self, *exc: object) -> None:
         self.close()
 
     # ------------------------------------------------------------------ core
 
     def _backoff(self, attempt: int) -> float:
-        return min(30.0, self._backoff_base * (2**attempt))
+        # `min` of float/int unifies to Any in mypy; the arithmetic is float.
+        return float(min(30.0, self._backoff_base * (2**attempt)))
 
     def _retry_after(self, response: httpx.Response) -> float:
         raw = response.headers.get("Retry-After", "")
@@ -113,7 +115,9 @@ class AdoClient:
             return max(0.0, float(raw))
         return self._throttle_default
 
-    def request(self, path: str, params: dict | None = None, method: str = "GET"):
+    def request(
+        self, path: str, params: dict[str, Any] | None = None, method: str = "GET"
+    ) -> dict[str, Any] | None:
         """Single request with api-version injection and retry handling.
 
         Returns parsed JSON body, or None for empty/204 responses.
@@ -162,11 +166,14 @@ class AdoClient:
                 raise ConnectorError(f"unexpected status {status} for {path}")
             if not response.content:
                 return None
-            return response.json()
+            # httpx types `.json()` as Any; the payload shape is asserted here.
+            return cast(dict[str, Any], response.json())
 
     # ------------------------------------------------------------------ paging
 
-    def iter_collection(self, path: str, params: dict | None = None, value_key: str = "value"):
+    def iter_collection(
+        self, path: str, params: dict[str, Any] | None = None, value_key: str = "value"
+    ) -> Iterator[dict[str, Any]]:
         """Continuation-token paging (count/value responses). Bounded by data."""
         merged = dict(params or {})
         token = merged.pop("continuationToken", None)
@@ -176,9 +183,7 @@ class AdoClient:
         while True:
             pages += 1
             if pages > MAX_COLLECTION_PAGES:
-                raise ConnectorError(
-                    f"paging exceeded {MAX_COLLECTION_PAGES} pages for {path}"
-                )
+                raise ConnectorError(f"paging exceeded {MAX_COLLECTION_PAGES} pages for {path}")
             if token is not None and token == last_token:
                 raise ConnectorError(f"continuation token repeated for {path}")
             last_token = token
@@ -199,10 +204,10 @@ class AdoClient:
     def iter_skip_paged(
         self,
         path: str,
-        params: dict | None = None,
+        params: dict[str, Any] | None = None,
         value_key: str = "value",
         page_size: int | None = None,
-    ):
+    ) -> Iterator[dict[str, Any]]:
         """searchCriteria[skip]/[pageSize] paging (git commits)."""
         size = page_size or self.page_size
         skip = 0
@@ -225,7 +230,9 @@ class AdoClient:
                 return
             skip += size
 
-    def post_json(self, path: str, payload: dict, params: dict | None = None):
+    def post_json(
+        self, path: str, payload: dict[str, Any], params: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
         """POST with the same api-version injection; used by the WIQL query API."""
         merged = dict(params or {})
         merged.setdefault("api-version", API_VERSION)

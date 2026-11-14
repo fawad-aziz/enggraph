@@ -199,6 +199,97 @@ class InMemoryGraphRepository:
         dfs(from_id, {from_id}, [])
         return paths
 
+    def expand_paths(
+        self, node_id: str, org_id: str, rel_types: list[str], depth: int, limit: int
+    ) -> list[PathView]:
+        """Bounded expansion from one node: one explaining path per reached node.
+
+        Traversal is undirected (impact analysis cares about both directions) and
+        stays inside the organization, the relationship allowlist, `depth`, and
+        `limit`.
+        """
+        if self.get_node(node_id, org_id) is None:
+            return []
+        adjacency: dict[str, list[EdgeView]] = {}
+        for e in self._edges.values():
+            if rel_types and e.rel_type not in rel_types:
+                continue
+            if (
+                self._nodes[e.src].props.get("organizationId") != org_id
+                or self._nodes[e.dst].props.get("organizationId") != org_id
+            ):
+                continue
+            adjacency.setdefault(e.src, []).append(e)
+            adjacency.setdefault(e.dst, []).append(e)
+        visited = {node_id}
+        parent: dict[str, tuple[str, EdgeView]] = {}
+        frontier = [node_id]
+        for _ in range(max(depth, 0)):
+            if not frontier or len(visited) >= limit:
+                break
+            next_frontier: list[str] = []
+            for node in frontier:
+                for e in sorted(adjacency.get(node, []), key=lambda e: (e.rel_type, e.src, e.dst)):
+                    other = e.dst if e.src == node else e.src
+                    if other in visited:
+                        continue
+                    visited.add(other)
+                    parent[other] = (node, e)
+                    next_frontier.append(other)
+                    if len(visited) >= limit:
+                        break
+            frontier = next_frontier
+        paths: list[PathView] = []
+        for node in sorted(visited):
+            if node == node_id:
+                continue
+            chain: list[EdgeView] = []
+            cursor = node
+            while cursor != node_id:
+                prev, edge = parent[cursor]
+                chain.append(edge)
+                cursor = prev
+            chain.reverse()
+            vertices = [node_id]
+            for edge in chain:
+                vertices.append(edge.dst if edge.src == vertices[-1] else edge.src)
+            paths.append(PathView(nodes=[self._nodes[v] for v in vertices], edges=chain))
+        return paths[:limit]
+
+    def list_by_label(self, label: str, org_id: str, limit: int, offset: int = 0) -> list[NodeView]:
+        hits = [
+            n
+            for n in self._nodes.values()
+            if n.label == label
+            and n.props.get("organizationId") == org_id
+            and not n.props.get("isDeleted")
+        ]
+        hits.sort(key=lambda n: n.id)
+        return hits[offset : offset + limit]
+
+    def count_by_label(self, label: str, org_id: str) -> int:
+        return sum(
+            1
+            for n in self._nodes.values()
+            if n.label == label
+            and n.props.get("organizationId") == org_id
+            and not n.props.get("isDeleted")
+        )
+
+    def delete_edge(self, rel_type: str, src_id: str, dst_id: str, org_id: str) -> int:
+        key = (src_id, rel_type, dst_id)
+        edge = self._edges.get(key)
+        if edge is None:
+            return 0
+        src = self._nodes.get(src_id)
+        dst = self._nodes.get(dst_id)
+        if src is None or dst is None:
+            return 0
+        if src.props.get("organizationId") != org_id or dst.props.get("organizationId") != org_id:
+            return 0
+        del self._edges[key]
+        return 1
+
     def mark_not_seen(self, org_id: str, cutoff_iso: str, labels: list[str]) -> int:
         count = 0
         for n in self._nodes.values():

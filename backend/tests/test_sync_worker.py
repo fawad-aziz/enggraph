@@ -34,7 +34,9 @@ def make_factory(recorder=None):
     def factory(connector: ConnectorConfig) -> AdoClient:
         transport_handler = handler if recorder is None else recorder
         return AdoClient(
-            ORG, PAT, page_size=connector.page_size,
+            ORG,
+            PAT,
+            page_size=connector.page_size,
             transport=httpx.MockTransport(transport_handler),
         )
 
@@ -46,35 +48,42 @@ def session(engine) -> Session:
     Base.metadata.create_all(engine)
     maker = sessionmaker(engine, class_=Session, expire_on_commit=False)
     session = maker()
-    session.add(ConnectorConfig(
-        id=CONNECTOR_ID, organization_id=ORG, ado_organization=ORG,
-        pat_secret_ref="AZURE_DEVOPS_PAT", project_names=[PROJECT], page_size=2,
-    ))
+    session.add(
+        ConnectorConfig(
+            id=CONNECTOR_ID,
+            organization_id=ORG,
+            ado_organization=ORG,
+            pat_secret_ref="AZURE_DEVOPS_PAT",
+            project_names=[PROJECT],
+            page_size=2,
+        )
+    )
     session.commit()
     yield session
     session.close()
 
 
 def run(session: Session, repo: InMemoryGraphRepository, mode: str = "FULL", factory=None):
-    enqueue_job(
-        session, organization_id=ORG, connector_config_id=CONNECTOR_ID, mode=mode
-    )
+    enqueue_job(session, organization_id=ORG, connector_config_id=CONNECTOR_ID, mode=mode)
     return run_once(session, "worker-1", client_factory=factory or make_factory(), repo=repo)
 
 
 def seed_stale_node(repo: InMemoryGraphRepository) -> None:
     """A provider record last seen years ago; untouched by these fixtures."""
-    repo.upsert_nodes([NodeUpsert(
-        label="WorkItem", id=STALE_ID,
-        props={"organizationId": ORG, "lastSeenAt": "2020-01-01T00:00:00Z"},
-        organization_id=ORG,
-    )])
+    repo.upsert_nodes(
+        [
+            NodeUpsert(
+                label="WorkItem",
+                id=STALE_ID,
+                props={"organizationId": ORG, "lastSeenAt": "2020-01-01T00:00:00Z"},
+                organization_id=ORG,
+            )
+        ]
+    )
 
 
 def audit_actions(session: Session) -> list[str]:
-    return list(
-        session.execute(select(AuditRecord.action)).scalars().all()
-    )
+    return list(session.execute(select(AuditRecord.action)).scalars().all())
 
 
 def test_full_sync_writes_the_project_graph(session):
@@ -170,8 +179,12 @@ def test_incremental_sync_resumes_from_the_checkpoint(session):
         return handler(request)
 
     advance_checkpoint(
-        session, org_id=ORG, connector_id=CONNECTOR_ID, scope=scope_for(PROJECT),
-        job_id="seed-job", provider_version=5,
+        session,
+        org_id=ORG,
+        connector_id=CONNECTOR_ID,
+        scope=scope_for(PROJECT),
+        job_id="seed-job",
+        provider_version=5,
     )
     repo = InMemoryGraphRepository()
     job = run(session, repo, mode="INCREMENTAL", factory=make_factory(recording))
@@ -189,9 +202,11 @@ def test_full_pass_reconciles_stale_nodes(session):
     assert stale.props.get("isDeleted") is True
     # reconciled nodes are excluded from live counts
     assert repo.counts(ORG)["WorkItem"] == 2
-    reconcile_rows = session.execute(
-        select(AuditRecord).where(AuditRecord.action == "sync.reconcile")
-    ).scalars().all()
+    reconcile_rows = (
+        session.execute(select(AuditRecord).where(AuditRecord.action == "sync.reconcile"))
+        .scalars()
+        .all()
+    )
     assert reconcile_rows[0].details["marked_not_seen"] == 1
     assert reconcile_rows[0].target == job.id
 
@@ -207,9 +222,7 @@ def test_partial_pass_never_marks_anything_deleted(session):
 
 def test_organization_mismatch_is_refused_before_any_write(session):
     repo = InMemoryGraphRepository()
-    enqueue_job(
-        session, organization_id="other-org", connector_config_id=CONNECTOR_ID, mode="FULL"
-    )
+    enqueue_job(session, organization_id="other-org", connector_config_id=CONNECTOR_ID, mode="FULL")
     job = run_once(session, "worker-1", client_factory=make_factory(), repo=repo)
     assert job.state == "FAILED"
     assert "does not match connector organization" in job.error
@@ -240,10 +253,16 @@ def test_secret_reference_is_resolved_at_call_time(monkeypatch):
     settings = Settings(
         mode="demo", postgres_dsn="sqlite://", session_secret="s" * 32, neo4j_password="pw"
     )
-    client = production_client_factory(settings)(ConnectorConfig(
-        id="c-2", organization_id=ORG, ado_organization=ORG,
-        pat_secret_ref="AZURE_DEVOPS_PAT", project_names=[PROJECT], page_size=2,
-    ))
+    client = production_client_factory(settings)(
+        ConnectorConfig(
+            id="c-2",
+            organization_id=ORG,
+            ado_organization=ORG,
+            pat_secret_ref="AZURE_DEVOPS_PAT",
+            project_names=[PROJECT],
+            page_size=2,
+        )
+    )
     # httpx normalizes base_url to a prefix path; the organization is the host path.
     assert str(client._http.base_url) == f"https://dev.azure.com/{ORG}/"
     expected = base64.b64encode(f":{secret}".encode()).decode()
@@ -258,8 +277,12 @@ def test_missing_secret_reference_is_a_config_error(monkeypatch):
     )
     factory = production_client_factory(settings)
     connector = ConnectorConfig(
-        id="c-3", organization_id=ORG, ado_organization=ORG,
-        pat_secret_ref="AZURE_DEVOPS_SIDE_PAT", project_names=[PROJECT], page_size=2,
+        id="c-3",
+        organization_id=ORG,
+        ado_organization=ORG,
+        pat_secret_ref="AZURE_DEVOPS_SIDE_PAT",
+        project_names=[PROJECT],
+        page_size=2,
     )
     with pytest.raises(ConnectorConfigError, match="not set"):
         factory(connector)

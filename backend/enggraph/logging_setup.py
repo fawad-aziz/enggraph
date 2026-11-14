@@ -71,10 +71,29 @@ class JsonFormatter(logging.Formatter):
             "correlation_id": correlation_id.get(),
         }
         reserved = {
-            "name", "msg", "args", "levelname", "levelno", "pathname", "filename",
-            "module", "exc_info", "exc_text", "stack_info", "lineno", "funcName",
-            "created", "msecs", "relativeCreated", "thread", "threadid",
-            "processName", "process", "taskName", "message", "correlation_id",
+            "name",
+            "msg",
+            "args",
+            "levelname",
+            "levelno",
+            "pathname",
+            "filename",
+            "module",
+            "exc_info",
+            "exc_text",
+            "stack_info",
+            "lineno",
+            "funcName",
+            "created",
+            "msecs",
+            "relativeCreated",
+            "thread",
+            "threadid",
+            "processName",
+            "process",
+            "taskName",
+            "message",
+            "correlation_id",
         }
         for key, value in record.__dict__.items():
             if key not in reserved and not key.startswith("_"):

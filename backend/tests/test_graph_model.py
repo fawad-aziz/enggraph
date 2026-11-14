@@ -41,22 +41,21 @@ API1 = "enggraph:acme:api1"
 def fixture_nodes() -> list:
     return [
         node("Organization", "ado:azure:acme", name="Acme", provider="azure_devops"),
-        node("Project", P1, name="Commerce",
-             sourceUrl="https://dev.azure.com/acme/Commerce"),
+        node("Project", P1, name="Commerce", sourceUrl="https://dev.azure.com/acme/Commerce"),
         node("Team", "ado:acme:team1", name="Platform"),
         node("Developer", "ado:acme:dev1", displayName="Dana Diaz"),
         node("Repository", R1, name="commerce-api", defaultBranch="main"),
         node("WorkItem", WI1, title="Support identity providers", state="New"),
-        node("PullRequest", PR1, title="Add identity provider support",
-             status="completed"),
+        node("PullRequest", PR1, title="Add identity provider support", status="completed"),
         node("Commit", C1, hash="abc123", message="identity provider abstraction"),
         node("Service", SVC1, name="Identity Service", criticality="high"),
         node("Service", SVC2, name="Commerce Service", criticality="high"),
         node("API", API1, name="Identity API v2", version="2.0"),
         # second organization — must never leak into acme queries
         node("Project", "ado:other:proj9", name="OtherCommerce", organizationId="other"),
-        node("Repository", "ado:other:proj9:repo9", name="commerce-api-clone",
-             organizationId="other"),
+        node(
+            "Repository", "ado:other:proj9:repo9", name="commerce-api-clone", organizationId="other"
+        ),
     ]
 
 
@@ -93,8 +92,9 @@ def test_id_construction_formats():
     assert repository_id("acme", "proj1", "r-uuid") == "ado:acme:proj1:repository:r-uuid"
     assert workitem_id("acme", "proj1", "42") == "ado:acme:proj1:workitem:42"
     assert pullrequest_id("acme", "proj1", "r-uuid", "7") == "ado:acme:proj1:pullrequest:r-uuid:7"
-    assert commit_id("acme", "proj1", "r-uuid", "deadbeef") == \
-        "ado:acme:proj1:commit:r-uuid:deadbeef"
+    assert (
+        commit_id("acme", "proj1", "r-uuid", "deadbeef") == "ado:acme:proj1:commit:r-uuid:deadbeef"
+    )
     assert service_id("acme", "uuid1") == "enggraph:acme:service:uuid1"
 
 
@@ -153,8 +153,9 @@ def test_repeated_upserts_create_no_duplicates():
     repo.upsert_edges(fixture_edges())
     assert repo.counts(ORG) == before
     # No duplicate directed edges: (rel, src, dst) keys are unique.
-    all_edges = repo.outgoing("ado:acme:proj1:repo1:pr1", ORG, [], 100) + \
-        repo.incoming("ado:acme:proj1:repo1:pr1", ORG, [], 100)
+    all_edges = repo.outgoing("ado:acme:proj1:repo1:pr1", ORG, [], 100) + repo.incoming(
+        "ado:acme:proj1:repo1:pr1", ORG, [], 100
+    )
     keys = [(e.rel_type, e.src, e.dst) for e in all_edges]
     assert len(keys) == len(set(keys))
 
@@ -162,16 +163,18 @@ def test_repeated_upserts_create_no_duplicates():
 def test_edge_merge_preserves_and_updates_props():
     repo = build_fixture_repo()
     # upsert the same edge again with extra evidence props
-    repo.upsert_edges([
-        edge(
-            "LINKED_TO",
-            "PullRequest",
-            "ado:acme:proj1:repo1:pr1",
-            "WorkItem",
-            "ado:acme:proj1:wi1",
-            sourceRecordId="pr-1-workitem-9",
-        )
-    ])
+    repo.upsert_edges(
+        [
+            edge(
+                "LINKED_TO",
+                "PullRequest",
+                "ado:acme:proj1:repo1:pr1",
+                "WorkItem",
+                "ado:acme:proj1:wi1",
+                sourceRecordId="pr-1-workitem-9",
+            )
+        ]
+    )
     outs = repo.outgoing("ado:acme:proj1:repo1:pr1", ORG, ["LINKED_TO"], 10)
     assert len(outs) == 1
     assert outs[0].props["provenanceType"] == "PROVIDER_EXPLICIT"
@@ -181,9 +184,9 @@ def test_edge_merge_preserves_and_updates_props():
 
 def test_edge_to_missing_node_is_skipped():
     repo = InMemoryGraphRepository()
-    created = repo.upsert_edges([
-        edge("LINKED_TO", "PullRequest", "missing-pr", "WorkItem", "missing-wi")
-    ])
+    created = repo.upsert_edges(
+        [edge("LINKED_TO", "PullRequest", "missing-pr", "WorkItem", "missing-wi")]
+    )
     assert created == 0
     assert repo.counts(ORG) == {}
 
@@ -201,8 +204,16 @@ def test_search_filters_by_label_org_and_text():
 
 
 ALL_LABELS = [
-    "Organization", "Project", "Team", "Developer", "Repository",
-    "WorkItem", "PullRequest", "Commit", "Service", "API",
+    "Organization",
+    "Project",
+    "Team",
+    "Developer",
+    "Repository",
+    "WorkItem",
+    "PullRequest",
+    "Commit",
+    "Service",
+    "API",
 ]
 
 
@@ -253,8 +264,9 @@ def test_neighborhood_is_bounded_and_filtered():
 def test_paths_explain_inclusion():
     repo = build_fixture_repo()
     # svc2 -CONSUMES-> api1 <-EXPOSES- svc1: 2-edge path, traversed undirected
-    paths = repo.find_paths("enggraph:acme:svc2", "enggraph:acme:svc1", ORG,
-                            ["CONSUMES", "EXPOSES"], 2, 10)
+    paths = repo.find_paths(
+        "enggraph:acme:svc2", "enggraph:acme:svc1", ORG, ["CONSUMES", "EXPOSES"], 2, 10
+    )
     assert paths
     p = paths[0]
     assert p.nodes[0].id == "enggraph:acme:svc2" and p.nodes[-1].id == "enggraph:acme:svc1"
@@ -263,20 +275,33 @@ def test_paths_explain_inclusion():
         assert p.edges[i].src in (p.nodes[i].id, p.nodes[i + 1].id)
         assert p.edges[i].dst in (p.nodes[i].id, p.nodes[i + 1].id)
     # bounded depth: depth 1 finds nothing for a 2-edge path
-    assert repo.find_paths("enggraph:acme:svc2", "enggraph:acme:svc1", ORG,
-                           ["CONSUMES", "EXPOSES"], 1, 10) == []
+    assert (
+        repo.find_paths(
+            "enggraph:acme:svc2", "enggraph:acme:svc1", ORG, ["CONSUMES", "EXPOSES"], 1, 10
+        )
+        == []
+    )
 
 
 def test_long_bounded_path_across_ado_and_manual_edges():
     repo = build_fixture_repo()
     # wi1 <-LINKED_TO- pr1 -CHANGES-> c1 <-CONTAINS_COMMIT- repo1 <-IMPLEMENTED_BY- svc1
-    paths = repo.find_paths("ado:acme:proj1:wi1", "enggraph:acme:svc1", ORG,
-                            ["LINKED_TO", "CHANGES", "CONTAINS_COMMIT", "IMPLEMENTED_BY"], 4, 10)
+    paths = repo.find_paths(
+        "ado:acme:proj1:wi1",
+        "enggraph:acme:svc1",
+        ORG,
+        ["LINKED_TO", "CHANGES", "CONTAINS_COMMIT", "IMPLEMENTED_BY"],
+        4,
+        10,
+    )
     assert paths
     p = paths[0]
     assert [n.id for n in p.nodes] == [
-        "ado:acme:proj1:wi1", "ado:acme:proj1:repo1:pr1",
-        "ado:acme:proj1:repo1:c1", "ado:acme:proj1:repo1", "enggraph:acme:svc1",
+        "ado:acme:proj1:wi1",
+        "ado:acme:proj1:repo1:pr1",
+        "ado:acme:proj1:repo1:c1",
+        "ado:acme:proj1:repo1",
+        "enggraph:acme:svc1",
     ]
     # depth 3 cannot reach a 4-edge target
     chain = ["LINKED_TO", "CHANGES", "CONTAINS_COMMIT", "IMPLEMENTED_BY"]
@@ -285,12 +310,22 @@ def test_long_bounded_path_across_ado_and_manual_edges():
 
 def test_mark_not_seen_reconciliation():
     repo = build_fixture_repo()
-    repo.upsert_nodes([
-        node("WorkItem", "ado:acme:proj1:wi2", title="Old ticket",
-             lastSeenAt="2026-01-01T00:00:00Z"),
-        node("WorkItem", "ado:acme:proj1:wi3", title="Fresh ticket",
-             lastSeenAt="2026-11-01T00:00:00Z"),
-    ])
+    repo.upsert_nodes(
+        [
+            node(
+                "WorkItem",
+                "ado:acme:proj1:wi2",
+                title="Old ticket",
+                lastSeenAt="2026-01-01T00:00:00Z",
+            ),
+            node(
+                "WorkItem",
+                "ado:acme:proj1:wi3",
+                title="Fresh ticket",
+                lastSeenAt="2026-11-01T00:00:00Z",
+            ),
+        ]
+    )
     stale = repo.mark_not_seen(ORG, "2026-06-01T00:00:00Z", ["WorkItem"])
     assert stale == 1
     assert repo.get_node("ado:acme:proj1:wi2", ORG).props["isDeleted"] is True
@@ -301,14 +336,25 @@ def test_mark_not_seen_reconciliation():
 
 def test_demo_reset_removes_only_demo_records():
     repo = build_fixture_repo()
-    repo.upsert_nodes([
-        node("Service", "enggraph:acme:svc9", name="Demo svc",
-             demoData=True, organizationId=ORG),
-    ])
-    repo.upsert_edges([
-        edge("DEPENDS_ON", "Service", SVC2, "Service", "enggraph:acme:svc9",
-             provenanceType="MANUAL"),
-    ])
+    repo.upsert_nodes(
+        [
+            node(
+                "Service", "enggraph:acme:svc9", name="Demo svc", demoData=True, organizationId=ORG
+            ),
+        ]
+    )
+    repo.upsert_edges(
+        [
+            edge(
+                "DEPENDS_ON",
+                "Service",
+                SVC2,
+                "Service",
+                "enggraph:acme:svc9",
+                provenanceType="MANUAL",
+            ),
+        ]
+    )
     removed = repo.delete_demo(ORG)
     assert removed == 1
     assert repo.get_node("enggraph:acme:svc9", ORG) is None

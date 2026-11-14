@@ -2,7 +2,8 @@
 
 Run against SQLite in a temp file (the schema is portable; production runs it
 against Postgres). Checks the security-relevant shape: no PAT column, hashes
-only, checkpoint/job uniqueness, index presence.
+only, checkpoint/job uniqueness, index presence, and the persisted impact-report
+shape (org/subject indexes, no credential columns, JSON round-trip).
 """
 
 from __future__ import annotations
@@ -70,8 +71,7 @@ def test_checkpoint_scope_is_unique_per_connector(dsn):
     command.upgrade(make_config(dsn), "head")
     inspector = sa.inspect(sa.create_engine(dsn))
     constraints = {
-        tuple(c["column_names"])
-        for c in inspector.get_unique_constraints("sync_checkpoints")
+        tuple(c["column_names"]) for c in inspector.get_unique_constraints("sync_checkpoints")
     }
     assert ("organization_id", "connector_config_id", "scope") in constraints
 
@@ -82,10 +82,83 @@ def test_version_is_stamped_and_downgrade_removes_tables(dsn):
     engine = sa.create_engine(dsn)
     with engine.connect() as conn:
         version = conn.execute(sa.text("select version_num from alembic_version")).scalar()
-    assert version == "0001"
+    assert version == "0002"
     command.downgrade(cfg, "base")
     tables = set(sa.inspect(sa.create_engine(dsn)).get_table_names())
     assert tables == {"alembic_version"}
+
+
+def test_impact_reports_are_org_and_subject_indexed(dsn):
+    """Reports are read by id within one organization; the lookup paths exist."""
+    command.upgrade(make_config(dsn), "head")
+    inspector = sa.inspect(sa.create_engine(dsn))
+    indexed = {c["name"] for c in inspector.get_columns("impact_analyses")}
+    assert {"organization_id", "subject_id", "report", "result_count"} <= indexed
+    indexes = {
+        (i["name"], tuple(i["column_names"])) for i in inspector.get_indexes("impact_analyses")
+    }
+    assert ("ix_impact_analyses_organization_id", ("organization_id",)) in indexes
+    assert ("ix_impact_analyses_subject_id", ("subject_id",)) in indexes
+
+
+def test_impact_reports_have_no_credential_shaped_columns(dsn):
+    command.upgrade(make_config(dsn), "head")
+    inspector = sa.inspect(sa.create_engine(dsn))
+    columns = [c["name"] for c in inspector.get_columns("impact_analyses")]
+    assert not any(key in c for c in columns for key in ("secret", "pat", "token", "password"))
+
+
+def test_impact_report_json_round_trips(dsn):
+    """The persisted report keeps the findings and the limitations section."""
+    command.upgrade(make_config(dsn), "head")
+    engine = sa.create_engine(dsn)
+    report = {
+        "analysisId": "a-1",
+        "findings": [{"category": "DIRECT", "entityId": "ado:acme:project:p-1", "depth": 1}],
+        "limitations": ["Traversal is bounded to depth 4."],
+    }
+    table = sa.table(
+        "impact_analyses",
+        sa.column("id", sa.String),
+        sa.column("organization_id", sa.String),
+        sa.column("subject_id", sa.String),
+        sa.column("categories", sa.JSON),
+        sa.column("report", sa.JSON),
+        sa.column("result_count", sa.Integer),
+        sa.column("depth", sa.Integer),
+        sa.column("limit", sa.Integer),
+    )
+    with engine.connect() as conn:
+        conn.execute(
+            sa.insert(table).values(
+                id="a-1",
+                organization_id="acme",
+                subject_id="ado:acme:project:p-1",
+                categories=["DIRECT"],
+                report=report,
+                result_count=1,
+                depth=4,
+                limit=200,
+            )
+        )
+        conn.commit()
+    with engine.connect() as conn:
+        row = conn.execute(
+            sa.select(
+                table.c.report,
+                table.c.categories,
+                table.c.result_count,
+                table.c.depth,
+                table.c.limit,
+            ).where(table.c.organization_id == "acme")
+        ).one()
+    assert row[0]["limitations"] == report["limitations"]
+    assert row[0]["findings"] == report["findings"]
+    assert row[1] == ["DIRECT"]
+    assert row[2] == 1
+    # The bounds in effect are stored with the report, so a stored report is
+    # self-describing about how bounded it was.
+    assert (row[3], row[4]) == (4, 200)
 
 
 def test_env_variable_dsn_wins_over_the_placeholder(tmp_path, monkeypatch):

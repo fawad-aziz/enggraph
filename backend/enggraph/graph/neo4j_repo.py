@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import re
 from collections import defaultdict
+from typing import Any
 
 from neo4j import Driver
 
@@ -44,7 +45,7 @@ def _safe_rel(rel_type: str) -> str:
     return rel_type
 
 
-def _record_to_node(record: dict) -> NodeView:
+def _record_to_node(record: dict[str, Any]) -> NodeView:
     return NodeView(label=record["label"], id=record["id"], props=dict(record["props"]))
 
 
@@ -53,14 +54,14 @@ class Neo4jGraphRepository:
         self.driver = driver
         self.database = database
 
-    def _run(self, cypher: str, **params) -> list:
+    def _run(self, cypher: str, **params: Any) -> list[Any]:
         result = self.driver.execute_query(cypher, parameters_=params, database_=self.database)
         return list(result.records)
 
     # ------------------------------------------------------------------ writes
 
     def upsert_nodes(self, nodes: list[NodeUpsert]) -> int:
-        by_label: dict[str, list[dict]] = defaultdict(list)
+        by_label: dict[str, list[dict[str, Any]]] = defaultdict(list[Any])
         for n in nodes:
             label = _safe_label(n.label)
             by_label[label].append(
@@ -79,7 +80,7 @@ class Neo4jGraphRepository:
         return total
 
     def upsert_edges(self, edges: list[EdgeUpsert]) -> int:
-        by_triple: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
+        by_triple: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list[Any])
         for e in edges:
             e.validate_endpoints()
             src_label = _safe_label(e.src_label)
@@ -262,8 +263,7 @@ class Neo4jGraphRepository:
         for record in records:
             path = record["p"]
             nodes = [
-                NodeView(label=list(n.labels)[0], id=n["id"], props=dict(n))
-                for n in path.nodes
+                NodeView(label=list(n.labels)[0], id=n["id"], props=dict(n)) for n in path.nodes
             ]
             edges = [
                 EdgeView(
@@ -276,6 +276,104 @@ class Neo4jGraphRepository:
             ]
             paths.append(PathView(nodes=nodes, edges=edges))
         return paths
+
+    def expand_paths(
+        self, node_id: str, org_id: str, rel_types: list[str], depth: int, limit: int
+    ) -> list[PathView]:
+        """Bounded expansion from one node, keeping one explaining path per node.
+
+        Undirected (impact analysis reads both directions), org-scoped, rel
+        allowlisted, depth-bounded, limit-bounded. Parent links form a spanning
+        tree so each reported path is a shortest-first witness.
+        """
+        start = self.get_node(node_id, org_id)
+        if start is None:
+            return []
+        safe_rels = [_safe_rel(r) for r in rel_types] if rel_types else list(RELATION_SEMANTICS)
+        rel_pattern = "|".join(f"`{r}`" for r in safe_rels)
+        visited: dict[str, NodeView] = {node_id: start}
+        parent: dict[str, tuple[str, EdgeView]] = {}
+        frontier = [node_id]
+        for _ in range(max(depth, 0)):
+            if not frontier or len(visited) >= limit:
+                break
+            records = self._run(
+                "UNWIND $frontier AS nid "
+                f"MATCH (a {{id: nid}})-[r:`{rel_pattern}`]-(b) "
+                "WHERE a.organizationId = $org AND b.organizationId = $org "
+                "RETURN b.id AS id, a.id AS parent, type(r) AS rel, "
+                "startNode(r).id AS edge_src, endNode(r).id AS edge_dst, "
+                "properties(r) AS props, labels(b)[0] AS label, properties(b) AS node_props "
+                "LIMIT $fanout",
+                frontier=frontier,
+                org=org_id,
+                fanout=min(limit - len(visited), limit),
+            )
+            next_frontier: list[str] = []
+            for r in records:
+                if r["id"] in visited:
+                    continue
+                edge = EdgeView(
+                    rel_type=r["rel"], src=r["edge_src"], dst=r["edge_dst"], props=dict(r["props"])
+                )
+                visited[r["id"]] = NodeView(
+                    label=r["label"], id=r["id"], props=dict(r["node_props"])
+                )
+                parent[r["id"]] = (r["parent"], edge)
+                next_frontier.append(r["id"])
+                if len(visited) >= limit:
+                    break
+            frontier = next_frontier
+        paths: list[PathView] = []
+        for node in sorted(visited):
+            if node == node_id:
+                continue
+            chain: list[EdgeView] = []
+            cursor = node
+            while cursor != node_id:
+                prev, edge = parent[cursor]
+                chain.append(edge)
+                cursor = prev
+            chain.reverse()
+            vertices = [node_id]
+            for edge in chain:
+                vertices.append(edge.dst if edge.src == vertices[-1] else edge.src)
+            paths.append(PathView(nodes=[visited[v] for v in vertices], edges=chain))
+        return paths[:limit]
+
+    def list_by_label(self, label: str, org_id: str, limit: int, offset: int = 0) -> list[NodeView]:
+        safe = _safe_label(label)
+        records = self._run(
+            f"MATCH (n:`{safe}`) WHERE n.organizationId = $org "
+            "AND NOT coalesce(n.isDeleted, false) "
+            "RETURN labels(n)[0] AS label, n.id AS id, properties(n) AS props "
+            "ORDER BY n.id SKIP $offset LIMIT $limit",
+            org=org_id,
+            offset=offset,
+            limit=limit,
+        )
+        return [_record_to_node(r) for r in records]
+
+    def count_by_label(self, label: str, org_id: str) -> int:
+        safe = _safe_label(label)
+        records = self._run(
+            f"MATCH (n:`{safe}`) WHERE n.organizationId = $org "
+            "AND NOT coalesce(n.isDeleted, false) RETURN count(n) AS c",
+            org=org_id,
+        )
+        return int(records[0]["c"]) if records else 0
+
+    def delete_edge(self, rel_type: str, src_id: str, dst_id: str, org_id: str) -> int:
+        rel = _safe_rel(rel_type)
+        records = self._run(
+            f"MATCH (a {{id: $src}})-[r:`{rel}`]->(b {{id: $dst}}) "
+            "WHERE a.organizationId = $org AND b.organizationId = $org "
+            "DELETE r RETURN count(r) AS c",
+            src=src_id,
+            dst=dst_id,
+            org=org_id,
+        )
+        return int(records[0]["c"]) if records else 0
 
     def mark_not_seen(self, org_id: str, cutoff_iso: str, labels: list[str]) -> int:
         safe_labels = [_safe_label(s) for s in labels] if labels else list(NODE_LABELS)

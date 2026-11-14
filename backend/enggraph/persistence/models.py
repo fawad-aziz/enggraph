@@ -12,6 +12,7 @@ Secret handling rules enforced by this schema:
 from __future__ import annotations
 
 import datetime
+from typing import Any
 
 from sqlalchemy import (
     JSON,
@@ -98,7 +99,7 @@ class ConnectorConfig(Base):
     provider: Mapped[str] = mapped_column(String(32), default="azure_devops")
     ado_organization: Mapped[str] = mapped_column(String(128))
     pat_secret_ref: Mapped[str] = mapped_column(String(128))
-    project_names: Mapped[list] = mapped_column(JSON, default=list)
+    project_names: Mapped[list[Any]] = mapped_column(JSON, default=list[Any])
     page_size: Mapped[int] = mapped_column(Integer, default=100)
     is_active: Mapped[bool] = mapped_column(default=True)
     last_validated_at: Mapped[datetime.datetime | None] = mapped_column(
@@ -158,9 +159,7 @@ class JobEvent(Base):
     __table_args__ = (UniqueConstraint("job_id", "seq"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    job_id: Mapped[str] = mapped_column(
-        ForeignKey("sync_jobs.id", ondelete="CASCADE"), index=True
-    )
+    job_id: Mapped[str] = mapped_column(ForeignKey("sync_jobs.id", ondelete="CASCADE"), index=True)
     seq: Mapped[int] = mapped_column(Integer)
     stage: Mapped[str] = mapped_column(String(64))
     level: Mapped[str] = mapped_column(String(16), default="INFO")
@@ -177,9 +176,7 @@ class SyncCheckpoint(Base):
     corresponding page/batch has been persisted."""
 
     __tablename__ = "sync_checkpoints"
-    __table_args__ = (
-        UniqueConstraint("organization_id", "connector_config_id", "scope"),
-    )
+    __table_args__ = (UniqueConstraint("organization_id", "connector_config_id", "scope"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     organization_id: Mapped[str] = mapped_column(String(128), index=True)
@@ -200,6 +197,31 @@ class SyncCheckpoint(Base):
     )
 
 
+class ImpactAnalysis(Base):
+    """Persisted change-impact reports (FR-09), org-scoped and re-readable by id.
+
+    `report` contains graph ids, relationship paths, provenance and the
+    limitations section — no credentials, no raw provider payloads.
+    """
+
+    __tablename__ = "impact_analyses"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    organization_id: Mapped[str] = mapped_column(String(128), index=True)
+    requested_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), default=None
+    )
+    subject_id: Mapped[str] = mapped_column(String(160), index=True)
+    categories: Mapped[list[Any]] = mapped_column(JSON, default=list[Any])
+    depth: Mapped[int] = mapped_column(Integer, default=4)
+    limit: Mapped[int] = mapped_column(Integer, default=200)
+    result_count: Mapped[int] = mapped_column(Integer, default=0)
+    report: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict[str, Any])
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=func.now()
+    )
+
+
 class AuditRecord(Base):
     __tablename__ = "audit_records"
 
@@ -208,7 +230,7 @@ class AuditRecord(Base):
     actor: Mapped[str] = mapped_column(String(128))  # user id, or "system"
     action: Mapped[str] = mapped_column(String(64))
     target: Mapped[str] = mapped_column(String(160))
-    details: Mapped[dict] = mapped_column(JSON, default=dict)
+    details: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict[str, Any])
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=func.now()
     )

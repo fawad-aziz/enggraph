@@ -90,8 +90,7 @@ def run_job(
         return fail_job(
             session,
             job,
-            f"job organization {job.organization_id} does not match "
-            f"connector organization {org}",
+            f"job organization {job.organization_id} does not match connector organization {org}",
             projects_completed=0,
         )
     started = job.started_at or utcnow()

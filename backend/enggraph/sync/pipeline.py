@@ -10,6 +10,9 @@ checkpoint advance.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -26,7 +29,7 @@ def scope_for(project: str) -> str:
     return f"project:{project}"
 
 
-def chunked(items: list, size: int = BATCH_SIZE):
+def chunked(items: list[Any], size: int = BATCH_SIZE) -> Iterator[list[Any]]:
     for start in range(0, len(items), size):
         yield items[start : start + size]
 
@@ -50,8 +53,7 @@ def get_checkpoint(
     session: Session, org_id: str, connector_id: str, scope: str
 ) -> SyncCheckpoint | None:
     return session.execute(
-        select(SyncCheckpoint)
-        .where(
+        select(SyncCheckpoint).where(
             SyncCheckpoint.organization_id == org_id,
             SyncCheckpoint.connector_config_id == connector_id,
             SyncCheckpoint.scope == scope,
