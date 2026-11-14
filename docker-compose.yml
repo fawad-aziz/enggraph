@@ -1,0 +1,103 @@
+# EngGraph local deployment. Start with: docker compose up
+# Data persists in named volumes. Neo4j/Postgres are bound to localhost only.
+services:
+  neo4j:
+    image: neo4j:5
+    ports:
+      - "127.0.0.1:7687:7687"
+      - "127.0.0.1:7474:7474"
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env}
+      NEO4J_SERVER__PROPERTIES: dbms.security.auth_enabled=true
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "${NEO4J_PASSWORD}", "RETURN 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_USER: enggraph
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: enggraph
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "enggraph"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    command: ["sh", "/app/scripts/docker_entrypoint.sh"]
+    environment:
+      ENGGRAPH_MODE: ${ENGGRAPH_MODE:-demo}
+      POSTGRES_DSN: postgresql+psycopg://enggraph:${POSTGRES_PASSWORD}@postgres:5432/enggraph
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      ENGGRAPH_SESSION_SECRET: ${ENGGRAPH_SESSION_SECRET:?set ENGGRAPH_SESSION_SECRET in .env}
+      AZURE_DEVOPS_PAT: ${AZURE_DEVOPS_PAT:-}
+      AZURE_DEVOPS_ORGANIZATION: ${AZURE_DEVOPS_ORGANIZATION:-}
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./backend
+    command: ["python", "-m", "enggraph.worker"]
+    environment:
+      ENGGRAPH_MODE: ${ENGGRAPH_MODE:-demo}
+      POSTGRES_DSN: postgresql+psycopg://enggraph:${POSTGRES_PASSWORD}@postgres:5432/enggraph
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      AZURE_DEVOPS_PAT: ${AZURE_DEVOPS_PAT:-}
+      AZURE_DEVOPS_ORGANIZATION: ${AZURE_DEVOPS_ORGANIZATION:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+
+  mcp-server:
+    build:
+      context: ./backend
+    command: ["python", "-m", "enggraph.mcp_server"]
+    environment:
+      POSTGRES_DSN: postgresql+psycopg://enggraph:${POSTGRES_PASSWORD}@postgres:5432/enggraph
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      ENGGRAPH_SESSION_SECRET: ${ENGGRAPH_SESSION_SECRET}
+    ports:
+      - "127.0.0.1:8100:8100"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "127.0.0.1:3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  neo4j_data:
+  postgres_data:

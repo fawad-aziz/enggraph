@@ -1,0 +1,27 @@
+# Secrets — never commit real values
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+npm-debug.log*
+
+# Local data
+localdata/
+*.sqlite
+demo_state.json
+
+# OS
+Thumbs.db
+.DS_Store
