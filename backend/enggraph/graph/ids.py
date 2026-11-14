@@ -14,13 +14,18 @@ Provider IDs are preserved separately as `sourceId` on nodes.
 from __future__ import annotations
 
 
-def _safe(component: str) -> str:
-    """IDs must not embed colons; reject them loudly rather than silently encode."""
-    if ":" in component:
-        raise ValueError(f"ID component must not contain ':' -> {component!r}")
-    if not component:
+def _safe(component: str | int) -> str:
+    """IDs must not embed colons; reject them loudly rather than silently encode.
+
+    Numeric provider values (PR numbers, work item ids) are accepted and
+    stringified; graph ids are always strings.
+    """
+    text = str(component)
+    if ":" in text:
+        raise ValueError(f"ID component must not contain ':' -> {text!r}")
+    if not text:
         raise ValueError("ID component must be non-empty")
-    return component
+    return text
 
 
 def organization_id(provider: str, org: str) -> str:
@@ -47,7 +52,7 @@ def workitem_id(org: str, project: str, wi_source_id: str) -> str:
     return f"ado:{_safe(org)}:{_safe(project)}:workitem:{_safe(wi_source_id)}"
 
 
-def pullrequest_id(org: str, project: str, repo_source_id: str, pr_source_id: str) -> str:
+def pullrequest_id(org: str, project: str, repo_source_id: str, pr_source_id: str | int) -> str:
     return (
         f"ado:{_safe(org)}:{_safe(project)}:pullrequest:"
         f"{_safe(repo_source_id)}:{_safe(pr_source_id)}"

@@ -1,0 +1,20 @@
+{
+  "count": 2,
+  "value": [
+    {
+      "id": "p-uuid-1",
+      "name": "Commerce",
+      "abbreviation": "COM",
+      "description": "Commerce platform",
+      "state": "wellFormed",
+      "visibility": "private"
+    },
+    {
+      "id": "p-uuid-2",
+      "name": "Data",
+      "abbreviation": "DAT",
+      "state": "wellFormed"
+    }
+  ],
+  "@nextLink": "https://dev.azure.com/acme/_apis/projects?api-version=7.2&$top=2&$continuationToken=token2"
+}

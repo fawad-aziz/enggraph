@@ -1,0 +1,32 @@
+{
+  "count": 1,
+  "value": [
+    {
+      "pullRequestId": 7,
+      "title": "Add caching",
+      "description": "Introduce a cache layer",
+      "status": "completed",
+      "createdDate": "2026-10-01T10:00:00Z",
+      "createdBy": {
+        "id": "i-uuid-1",
+        "displayName": "Dana Diaz",
+        "uniqueName": "dana@acme.com"
+      },
+      "reviewers": [
+        {
+          "id": "i-uuid-2",
+          "displayName": "Omar F.",
+          "uniqueName": "omar@acme.com",
+          "vote": 10
+        }
+      ],
+      "commits": [
+        {
+          "commitId": "abc123",
+          "comments": "cache layer"
+        }
+      ],
+      "url": "https://dev.azure.com/acme/Commerce/_apis/git/repositories/r-uuid-1/pullRequests/7"
+    }
+  ]
+}

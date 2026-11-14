@@ -1,0 +1,10 @@
+{
+  "count": 1,
+  "value": [
+    {
+      "id": 42,
+      "url": "https://dev.azure.com/acme/Commerce/_apis/wit/workItems/42"
+    }
+  ],
+  "@nextLink": "https://dev.azure.com/acme/Commerce/_apis/git/repositories/r-uuid-1/pullRequests/7/workItemReferences?api-version=7.2&continuationToken=w2"
+}

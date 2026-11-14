@@ -1,0 +1,11 @@
+{
+  "count": 1,
+  "value": [
+    {
+      "id": "r-uuid-1",
+      "name": "commerce-api",
+      "defaultBranchName": "refs/heads/main",
+      "url": "https://dev.azure.com/acme/Commerce/_apis/git/repositories/r-uuid-1"
+    }
+  ]
+}

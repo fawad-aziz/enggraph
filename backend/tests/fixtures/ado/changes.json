@@ -1,0 +1,8 @@
+{
+  "changes": [
+    { "changeType": "added", "itemId": 42, "revision": 1 },
+    { "changeType": "modified", "itemId": 43, "revision": 2 }
+  ],
+  "processingRevision": 5,
+  "nextVersion": 6
+}

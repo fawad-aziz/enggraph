@@ -44,7 +44,12 @@ def redact(text: str) -> str:
 
 class RedactionFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
-        record.msg = redact(str(record.getMessage()))
+        folded = redact(str(record.getMessage()))
+        # Message + args are folded into one string; clearing args keeps
+        # `record.getMessage()` reproducible for every downstream formatter
+        # (third-party loggers such as httpx log with %-style args).
+        record.msg = folded
+        record.args = ()
         for key, value in list(record.__dict__.items()):
             if key in ("msg", "args", "exc_info", "exc_text", "stack_info"):
                 continue

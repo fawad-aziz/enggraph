@@ -1,0 +1,33 @@
+{
+  "count": 2,
+  "value": [
+    {
+      "id": 42,
+      "rev": 3,
+      "url": "https://dev.azure.com/acme/Commerce/_apis/wit/workItems/42",
+      "fields": {
+        "System.Title": "Add caching",
+        "System.State": "Resolved",
+        "System.Reason": "Completed",
+        "System.WorkItemType": "Task",
+        "System.Priority": "High",
+        "System.CreatedDate": "2026-09-01T00:00:00Z",
+        "System.ChangedDate": "2026-10-02T00:00:00Z",
+        "System.CreatedBy": "Dana Diaz <dana@acme.com>, 3",
+        "System.Parent": 10
+      }
+    },
+    {
+      "id": 43,
+      "rev": 1,
+      "url": "https://dev.azure.com/acme/Commerce/_apis/wit/workItems/43",
+      "fields": {
+        "System.Title": "Metrics gap",
+        "System.State": "New",
+        "System.WorkItemType": "Bug",
+        "System.ChangedDate": "2026-10-05T00:00:00Z",
+        "System.Parent": 42
+      }
+    }
+  ]
+}
