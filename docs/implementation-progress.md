@@ -162,5 +162,4 @@ Three fixes:
 Backend suite: **319 passed, 7 skipped** (the 7 neo4j-gated tests skip with an
 explicit reason); `ruff check .` clean, `ruff format .` 91 files unchanged,
 `mypy enggraph` strict clean over 55 source files. The container commands are
-verified on a machine with Docker, not in this shell. Fix commit: recorded in the
-following commit.
+verified on a machine with Docker, not in this shell. Fix commit: `3b94436`.
