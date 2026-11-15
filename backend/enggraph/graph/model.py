@@ -46,6 +46,11 @@ ProvenanceType = Literal[
     "PROVIDER_EXPLICIT", "MANUAL", "STATIC_ANALYSIS", "RUNTIME_OBSERVED", "INFERRED"
 ]
 
+# `sourceSystem` value for nodes the portal itself created (the manual catalog).
+# Reconciliation skips these: a provider pass has no evidence about a record the
+# provider never had, so it must not be treated as a deletion.
+MANUAL_SOURCE_SYSTEM = "enggraph"
+
 
 class NodeUpsert(BaseModel):
     """Idempotent node write keyed on canonical `id`."""

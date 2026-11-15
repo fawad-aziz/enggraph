@@ -16,6 +16,7 @@ from typing import Any
 from neo4j import Driver
 
 from enggraph.graph.model import (
+    MANUAL_SOURCE_SYSTEM,
     NODE_LABELS,
     RELATION_SEMANTICS,
     EdgeUpsert,
@@ -376,15 +377,24 @@ class Neo4jGraphRepository:
         return int(records[0]["c"]) if records else 0
 
     def mark_not_seen(self, org_id: str, cutoff_iso: str, labels: list[str]) -> int:
+        """Reconcile provider-unknown nodes; manual catalog and demo nodes are excluded.
+
+        `n.sourceSystem IS NULL` stays eligible so a provider node written before the
+        property existed is still reconciled. Parameters only — the label filter comes
+        from the internal allowlist.
+        """
         safe_labels = [_safe_label(s) for s in labels] if labels else list(NODE_LABELS)
         label_filter = " OR ".join(f"n:`{s}`" for s in safe_labels)
         records = self._run(
             "MATCH (n) WHERE n.organizationId = $org AND NOT coalesce(n.isDeleted, false) "
             f"AND ({label_filter}) AND n.lastSeenAt IS NOT NULL AND n.lastSeenAt < $cutoff "
+            "AND coalesce(n.demoData, false) = false "
+            "AND (n.sourceSystem IS NULL OR n.sourceSystem <> $manual_source) "
             "SET n.isDeleted = true, n.deletedAt = $now RETURN count(n) AS c",
             org=org_id,
             cutoff=cutoff_iso,
             now=cutoff_iso,
+            manual_source=MANUAL_SOURCE_SYSTEM,
         )
         return int(records[0]["c"]) if records else 0
 

@@ -10,7 +10,10 @@ contract and authorization are exercised in `test_mcp_tools.py` / `test_mcp_http
   token, and stays quiet when the operator supplied one;
 - `--host` / `--port` reach the HTTP runner, and the settings' own values reach the
   server the real `run_http` builds, together with the Host patterns the settings
-  declare (accepted) and an unrelated Host (refused).
+  declare (accepted) and an unrelated Host (refused);
+- `python -m enggraph.mcp` runs: the package has a `__main__.py`, it parses the argv
+  the deployment gave it, and it exits with `main`'s code (including the
+  configuration code, which is what a restart loop would otherwise mask).
 
 `setup_logging()` rebuilds the root handlers, so these assertions read the process's
 real stderr (`capfd`) rather than a pytest log fixture.
@@ -18,7 +21,11 @@ real stderr (`capfd`) rather than a pytest log fixture.
 
 from __future__ import annotations
 
+import runpy
+import sys
 from typing import Any
+
+import pytest
 
 from enggraph.mcp import server as mcp_server_module
 from enggraph.mcp.server import EXIT_CONFIG, EXIT_OK, main
@@ -126,3 +133,35 @@ async def test_the_http_launch_serves_the_host_the_settings_declare_and_its_patt
         assert (
             await raw_post(apps[0], "http://evil.example:8123", accept=stream_accept)
         ).status_code == 421
+
+
+def test_running_the_package_with_m_is_the_launch_path_a_deployment_uses(settings, monkeypatch):
+    """`python -m enggraph.mcp stdio` is the command a stdio client spawns and the
+    HTTP deployment's base command. Running a package with `-m` requires
+    `enggraph/mcp/__main__.py`; this pins that the module exists, parses the argv it
+    is given, and exits with the code `main` returns.
+    """
+    calls: list[str] = []
+    monkeypatch.delenv(MCP_TOKEN_ENV, raising=False)
+    monkeypatch.setattr(mcp_server_module, "load_settings", lambda: settings)
+    monkeypatch.setattr(mcp_server_module, "run_stdio", lambda: calls.append("stdio"))
+    monkeypatch.setattr(sys, "argv", ["python -m enggraph.mcp", "stdio"])
+    with pytest.raises(SystemExit) as raised:
+        runpy.run_module("enggraph.mcp", run_name="__main__")
+    assert raised.value.code == EXIT_OK
+    assert calls == ["stdio"]
+
+
+def test_running_the_package_with_m_stops_on_a_broken_configuration(settings, monkeypatch, capfd):
+    """The same entry point refuses a half-configured server, so the deployment's
+    restart loop never serves."""
+    broken = settings.model_copy(update={"neo4j_password": ""})
+    calls: list[str] = []
+    monkeypatch.setattr(mcp_server_module, "load_settings", lambda: broken)
+    monkeypatch.setattr(mcp_server_module, "run_http", lambda host, port: calls.append("http"))
+    monkeypatch.setattr(sys, "argv", ["python -m enggraph.mcp", "http", "--port", "8100"])
+    with pytest.raises(SystemExit) as raised:
+        runpy.run_module("enggraph.mcp", run_name="__main__")
+    assert raised.value.code == EXIT_CONFIG
+    assert calls == []
+    assert "NEO4J_PASSWORD is empty" in capfd.readouterr().err

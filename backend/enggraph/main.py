@@ -68,7 +68,9 @@ class AppContext:
             if repo is not None
             else (Neo4jGraphRepository(driver) if driver is not None else None)
         )
-        self.client_factory = client_factory or production_client_factory(settings)
+        # The same transport the connector endpoints use also reaches the sync
+        # worker, so an injected transport covers the whole request path.
+        self.client_factory = client_factory or production_client_factory(settings, ado_transport)
         self.ado_transport = ado_transport
 
 

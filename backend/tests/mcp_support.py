@@ -47,6 +47,7 @@ MCP_TOOL_NAMES = [
 # Canonical ids outside api_support (the same ids the API tests assert on).
 PR_ID = "ado:acme:Commerce:pullrequest:r-uuid-1:7"
 WI_42 = "ado:acme:Commerce:workitem:42"
+WI_43 = "ado:acme:Commerce:workitem:43"
 COMMIT_ABC = "ado:acme:Commerce:commit:r-uuid-1:abc123"
 # Commit/PR authors from the recorded fixtures (uniqueName-based canonical ids).
 AUTHOR_DANA = "ado:acme:identity:u.dana@acme.com"

@@ -120,37 +120,48 @@ def _nodes_along(
 
 def _cross_consumer_findings(
     subject: NodeView, repo: GraphRepository, org: str, limit: int
-) -> list[tuple[str, list[EdgeView]]]:
+) -> list[tuple[str, str, list[EdgeView]]]:
     """Documented inference rule: services sharing one API.
 
     - Service subject exposing an API -> services consuming that API.
     - Service subject consuming an API -> services exposing that API.
     - API subject -> consumers of the API exposed by its provider service.
+
+    Each result is `(path_start, finding, edges)`. The edges form a connected
+    chain from `path_start` to `finding`, the analyzed subject is on that chain,
+    and `edges[0]` always touches the subject. For a service subject the chain
+    starts at the subject; for an API subject both edges point at the subject,
+    so the chain starts at the exposing provider.
     """
-    pairs: list[tuple[str, list[EdgeView]]] = []
+    triples: list[tuple[str, str, list[EdgeView]]] = []
     seen: set[tuple[str, str]] = set()
 
-    def add(target_id: str, edges: list[EdgeView]) -> None:
-        # Dedupe key is (peer service, shared API); edges[0] is the EXPOSES edge, so
-        # its destination is the API the two services meet at.
+    def add(start_id: str, target_id: str, edges: list[EdgeView]) -> None:
+        # Dedupe is (peer, shared API); `edges[0].dst` is the shared API in all
+        # three arms.
         key = (target_id, edges[0].dst)
-        if target_id == subject.id or key in seen:
+        if target_id == subject.id:
+            return
+        if key in seen:
             return
         seen.add(key)
-        pairs.append((target_id, edges))
+        triples.append((start_id, target_id, edges))
 
     if subject.label == "Service":
         for expose in repo.outgoing(subject.id, org, ["EXPOSES"], limit):
             for consume in repo.incoming(expose.dst, org, ["CONSUMES"], limit):
-                add(consume.src, [expose, consume])
+                add(subject.id, consume.src, [expose, consume])
         for consume in repo.outgoing(subject.id, org, ["CONSUMES"], limit):
             for expose in repo.incoming(consume.dst, org, ["EXPOSES"], limit):
-                add(expose.src, [expose, consume])
+                # The consuming edge leaves the subject, so it comes first: the
+                # witness runs subject -> API -> the service that exposes it.
+                add(subject.id, expose.src, [consume, expose])
     elif subject.label == "API":
         for expose in repo.incoming(subject.id, org, ["EXPOSES"], limit):
-            for consume in repo.outgoing(expose.src, org, ["CONSUMES"], limit):
-                add(consume.src, [expose, consume])
-    return pairs
+            for consume in repo.incoming(subject.id, org, ["CONSUMES"], limit):
+                # Provider -> API -> consumer: the shared API sits in the middle.
+                add(expose.src, consume.src, [expose, consume])
+    return triples
 
 
 def limitations_text(depth: int, limit: int, categories: list[str], truncated: bool) -> list[str]:
@@ -226,11 +237,14 @@ def analyze_impact(
             findings[key] = _finding(category, path.nodes, path.edges, 1.0)
 
     if "INFERRED" in categories:
-        pairs = _cross_consumer_findings(subject, repo, org, limit + 1)
-        if len(pairs) > limit:
+        triples = _cross_consumer_findings(subject, repo, org, limit + 1)
+        if len(triples) > limit:
             truncated = True
-        for target_id, edges in pairs[:limit]:
-            nodes = _nodes_along(subject, edges, repo, org)
+        for start_id, target_id, edges in triples[:limit]:
+            start = repo.get_node(start_id, org)
+            if start is None:
+                continue
+            nodes = _nodes_along(start, edges, repo, org)
             if nodes is None:
                 continue
             key = ("INFERRED", target_id)

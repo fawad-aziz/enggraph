@@ -7,6 +7,7 @@ Format examples:
   ado:{org}:{project}:pullrequest:{repo_id}:{pr_id}
   ado:{org}:{project}:commit:{repo_id}:{sha}
   enggraph:{org}:service:{uuid}
+  demo:{org}:{slug}            (demo fixtures, see enggraph/demo.py)
 
 Provider IDs are preserved separately as `sourceId` on nodes.
 """
@@ -61,6 +62,11 @@ def pullrequest_id(org: str, project: str, repo_source_id: str, pr_source_id: st
 
 def commit_id(org: str, project: str, repo_source_id: str, commit_hash: str) -> str:
     return f"ado:{_safe(org)}:{_safe(project)}:commit:{_safe(repo_source_id)}:{_safe(commit_hash)}"
+
+
+def demo_id(org: str, slug: str) -> str:
+    """Demo fixture id: `demo:{org}:{slug}`, namespaced apart from provider ids."""
+    return f"demo:{_safe(org)}:{_safe(slug)}"
 
 
 def service_id(org: str, uuid: str) -> str:

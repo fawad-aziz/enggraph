@@ -71,7 +71,14 @@ class GraphRepository(Protocol):
 
     def delete_edge(self, rel_type: str, src_id: str, dst_id: str, org_id: str) -> int: ...
 
-    def mark_not_seen(self, org_id: str, cutoff_iso: str, labels: list[str]) -> int: ...
+    def mark_not_seen(self, org_id: str, cutoff_iso: str, labels: list[str]) -> int:
+        """Mark provider-unknown nodes as deleted.
+
+        Manual catalog nodes (`sourceSystem=enggraph`) and demo fixtures are never
+        reconciled: a provider pass has no evidence about records the provider
+        never had. Nodes with no `lastSeenAt` are skipped.
+        """
+        ...
 
     def delete_demo(self, org_id: str) -> int: ...
 

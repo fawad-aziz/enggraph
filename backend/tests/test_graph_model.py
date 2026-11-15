@@ -4,7 +4,7 @@ import pytest
 
 from enggraph.graph.ids import commit_id, pullrequest_id, repository_id, service_id, workitem_id
 from enggraph.graph.in_memory import InMemoryGraphRepository
-from enggraph.graph.model import EdgeUpsert, NodeUpsert
+from enggraph.graph.model import NODE_LABELS, EdgeUpsert, NodeUpsert
 
 ORG = "acme"
 
@@ -332,6 +332,47 @@ def test_mark_not_seen_reconciliation():
     # deactivation keeps the node (historical context) and hides from search
     hits = repo.search("ticket", ["WorkItem"], ORG, 10)
     assert {h.id for h in hits} == {"ado:acme:proj1:wi3"}
+
+
+def test_reconciliation_spares_manual_catalog_and_demo_records():
+    """A provider pass has no evidence about records the provider never had.
+
+    The cutoff is the job start time, so a catalog entry created before a pass is
+    older than the cutoff. Reconciling it would wipe the user's manual catalog on
+    every full sync — the rule pinned here is that manual and demo nodes survive.
+    """
+    repo = build_fixture_repo()
+    repo.upsert_nodes(
+        [
+            node(
+                "Service",
+                "enggraph:acme:svc9",
+                name="Gateway",
+                sourceSystem="enggraph",
+                lastSeenAt="2026-01-01T00:00:00Z",
+            ),
+            node(
+                "WorkItem",
+                "demo:acme:wi7",
+                title="Demo ticket",
+                demoData=True,
+                lastSeenAt="2026-01-01T00:00:00Z",
+            ),
+            node(
+                "WorkItem",
+                "ado:acme:proj1:wi8",
+                title="Legacy ticket",
+                lastSeenAt="2026-01-01T00:00:00Z",
+            ),
+        ]
+    )
+    marked = repo.mark_not_seen(ORG, "2026-06-01T00:00:00Z", list(NODE_LABELS))
+    # the provider node is eligible even with no sourceSystem property written
+    assert marked == 1
+    assert repo.get_node("enggraph:acme:svc9", ORG).props.get("isDeleted") is None
+    assert repo.get_node("demo:acme:wi7", ORG).props.get("isDeleted") is None
+    assert repo.get_node("ado:acme:proj1:wi8", ORG).props["isDeleted"] is True
+    assert "enggraph:acme:svc9" in {h.id for h in repo.search("gateway", ["Service"], ORG, 10)}
 
 
 def test_demo_reset_removes_only_demo_records():

@@ -8,7 +8,15 @@ Neo4j container. It is never wired into production app context.
 
 from __future__ import annotations
 
-from enggraph.graph.model import EdgeUpsert, EdgeView, GraphView, NodeUpsert, NodeView, PathView
+from enggraph.graph.model import (
+    MANUAL_SOURCE_SYSTEM,
+    EdgeUpsert,
+    EdgeView,
+    GraphView,
+    NodeUpsert,
+    NodeView,
+    PathView,
+)
 from enggraph.graph.repository import DEFAULT_SEARCH_FIELDS
 
 
@@ -291,11 +299,22 @@ class InMemoryGraphRepository:
         return 1
 
     def mark_not_seen(self, org_id: str, cutoff_iso: str, labels: list[str]) -> int:
+        """Reconcile provider-unknown nodes: last seen before `cutoff_iso` -> deleted.
+
+        Manual catalog nodes (`sourceSystem=enggraph`) and demo fixtures are not
+        provider-owned, so a provider pass is not evidence about them and they are
+        never reconciled. A node with no `lastSeenAt` is skipped: an unknown
+        observation time is not evidence of deletion.
+        """
         count = 0
         for n in self._nodes.values():
             if n.props.get("organizationId") != org_id:
                 continue
             if labels and n.label not in labels:
+                continue
+            if n.props.get("demoData") is True:
+                continue
+            if n.props.get("sourceSystem") == MANUAL_SOURCE_SYSTEM:
                 continue
             seen = n.props.get("lastSeenAt")
             if seen is not None and str(seen) < cutoff_iso:

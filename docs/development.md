@@ -41,6 +41,16 @@ cp .env.example .env  # fill values; POSTGRES_DSN points at your Postgres
 See `docs/mcp-setup.md` for the MCP transports, client configuration, and the
 credentials each transport needs.
 
+Load the demo dataset (needs the stores running; `ENGGRAPH_MODE=demo`):
+
+```bash
+cd backend && python scripts/demo_load.py --org demo
+```
+
+Every record it writes carries `demoData=true`, `sourceSystem="demo"` and a
+`demoNote`; the loader refuses an organization that already holds provider or
+manual catalog records.
+
 3. Frontend:
 
 ```bash
@@ -67,7 +77,19 @@ no Node) and any skipped checks are recorded in
 
 ## Reset
 
-- Application DB: `alembic -c backend/alembic.ini upgrade head` (additive
-  migrations) or drop/recreate the database.
-- Demo graph data: `python scripts/demo_load.py` (clean load) and
-  `python scripts/demo_reset.py` (safe reset). See `docs/troubleshooting.md`.
+- Application DB: migrations are additive — `cd backend && alembic upgrade head`.
+  Run it from `backend/`: `script_location = alembic` is resolved relative to the
+  current directory. The DSN comes from `POSTGRES_DSN` in `.env`
+  (`ENGGRAPH_POSTGRES_DSN` overrides it); the URL in `alembic.ini` is a
+  placeholder. `docker compose up` runs it in the backend entrypoint.
+  Drop/recreate the database is the destructive alternative.
+- Graph schema: `cd backend && python -m enggraph.install_schema` — repeatable,
+  every statement is `IF NOT EXISTS`.
+- Demo graph data (run from `backend/`):
+  `python scripts/demo_reset.py --org demo` (safe reset — deletes only
+  `demoData=true` nodes in that organization; provider and catalog records are
+  untouched) and `python scripts/demo_load.py --org demo --replace` (safe
+  reload). Both exit `2` with a named reason when the configuration is
+  incomplete or Neo4j is unreachable, and the loader refuses an organization
+  that already holds provider or manual catalog records.
+- Backup and full teardown: `docs/troubleshooting.md`.

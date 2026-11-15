@@ -15,6 +15,7 @@ from __future__ import annotations
 import datetime
 from collections.abc import Callable
 
+import httpx
 from sqlalchemy.orm import Session
 
 from enggraph.config import Settings
@@ -53,13 +54,18 @@ def iso_utc(dt: datetime.datetime) -> str:
     return dt.astimezone(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def production_client_factory(settings: Settings) -> ClientFactory:
+def production_client_factory(
+    settings: Settings, transport: httpx.BaseTransport | None = None
+) -> ClientFactory:
     """Production entry point: PAT resolved from its reference, never from the DB.
 
     `pat_secret_ref` names an environment variable. The settings alias
     (`AZURE_DEVOPS_PAT`) is checked first so a `.env`-provided PAT works;
     any other reference is read straight from the environment. The resolved
     value is never stored, logged, or returned by an endpoint.
+
+    `transport` is the same seam the connector endpoints use: recorded payloads
+    for tests. Production passes nothing, so the client talks to dev.azure.com.
     """
 
     def factory(connector: ConnectorConfig) -> AdoClient:
@@ -72,7 +78,12 @@ def production_client_factory(settings: Settings) -> ClientFactory:
                 )
         else:
             pat = resolve_secret(ref)
-        return AdoClient(connector.ado_organization, pat, page_size=connector.page_size)
+        return AdoClient(
+            connector.ado_organization,
+            pat,
+            page_size=connector.page_size,
+            transport=transport,
+        )
 
     return factory
 

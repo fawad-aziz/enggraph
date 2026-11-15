@@ -27,13 +27,19 @@ from sqlalchemy.orm import Session
 from enggraph.api.errors import ApiError
 from enggraph.auth.service import Principal
 from enggraph.graph.ids import api_id, service_id
-from enggraph.graph.model import RELATION_SEMANTICS, EdgeUpsert, NodeUpsert, NodeView
+from enggraph.graph.model import (
+    MANUAL_SOURCE_SYSTEM,
+    RELATION_SEMANTICS,
+    EdgeUpsert,
+    NodeUpsert,
+    NodeView,
+)
 from enggraph.graph.repository import GraphRepository
 from enggraph.jobs.queue import audit_record, redact_details
 from enggraph.services.display import edge_dto, node_dto
 
 MANUAL_REL_TYPES = ("OWNS", "IMPLEMENTED_BY", "EXPOSES", "CONSUMES", "DEPENDS_ON")
-SOURCE_SYSTEM = "enggraph"
+SOURCE_SYSTEM = MANUAL_SOURCE_SYSTEM
 MAX_NAME_LENGTH = 200
 MAX_TEXT_LENGTH = 2000
 

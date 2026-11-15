@@ -1,4 +1,11 @@
-"""Alembic environment. DSN comes from ENGGRAPH_POSTGRES_DSN when set."""
+"""Alembic environment. DSN comes from the environment when set.
+
+`ENGGRAPH_POSTGRES_DSN` wins if present; otherwise the app's own
+`POSTGRES_DSN` (the alias `enggraph.config.Settings` reads) is used, so
+`cp .env.example .env` + `cd backend && alembic upgrade head` needs no extra
+variable. The `alembic.ini` URL is the last fallback and holds a placeholder,
+not a credential — a run that reaches it is a run that was not configured.
+"""
 
 from __future__ import annotations
 
@@ -14,7 +21,11 @@ target_metadata = Base.metadata
 
 
 def _dsn() -> str:
-    return os.environ.get("ENGGRAPH_POSTGRES_DSN") or config.get_main_option("sqlalchemy.url")
+    return (
+        os.environ.get("ENGGRAPH_POSTGRES_DSN")
+        or os.environ.get("POSTGRES_DSN")
+        or config.get_main_option("sqlalchemy.url")
+    )
 
 
 def run_migrations_offline() -> None:

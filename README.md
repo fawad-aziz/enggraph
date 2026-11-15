@@ -30,7 +30,9 @@ labeled synthetic fixtures, no external credentials. See
 - `frontend/` — React + TypeScript portal (search, graph explorer,
   catalog, impact analysis).
 - `docs/` — architecture, API, MCP, security, operations, limitations.
-- `scripts/` — demo data load/reset, user creation.
+- `backend/scripts/` — `demo_load.py` (`--org`, `--replace`),
+  `demo_reset.py` (`--org`), `create_user.py` (`--email`, `--role`, `--org`,
+  `--min`; the password is prompted, never a flag).
 
 ## Tests
 

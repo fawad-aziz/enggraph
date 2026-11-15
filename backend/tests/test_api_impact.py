@@ -274,6 +274,88 @@ def test_inferred_findings_come_from_the_documented_rule(client):
     assert "0.6" in text
 
 
+def test_a_service_that_consumes_an_api_is_reported_to_the_service_that_exposes_it(client):
+    """The consumer arm of the rule: the finding is the provider, never the subject."""
+    token = login(client, ADMIN_EMAIL)
+    provider = client.post(
+        "/api/v1/services", headers=bearer(token), json={"name": "identity-service"}
+    ).json()
+    consumer = client.post(
+        "/api/v1/services", headers=bearer(token), json={"name": "orders-service"}
+    ).json()
+    api = client.post(
+        "/api/v1/apis",
+        headers=bearer(token),
+        json={"name": "POST /tokens", "method": "post", "path": "/tokens"},
+    ).json()
+    client.post(
+        "/api/v1/relationships",
+        headers=bearer(token),
+        json={"relType": "EXPOSES", "srcId": provider["entityId"], "dstId": api["entityId"]},
+    )
+    client.post(
+        "/api/v1/relationships",
+        headers=bearer(token),
+        json={"relType": "CONSUMES", "srcId": consumer["entityId"], "dstId": api["entityId"]},
+    )
+
+    report = analyze(client, token, {"subjectId": consumer["entityId"], "categories": ["INFERRED"]})
+    assert report["counts"]["INFERRED"] == 1
+    inferred = report["findings"][0]
+    # The analyzed subject is never reported as its own change impact.
+    assert inferred["entityId"] == provider["entityId"]
+    assert [e["entityId"] for e in inferred["path"]["entities"]] == [
+        consumer["entityId"],
+        api["entityId"],
+        provider["entityId"],
+    ]
+    # The witness runs out of the subject: it consumes the API, the provider exposes it.
+    assert [e["relType"] for e in inferred["path"]["relationships"]] == ["CONSUMES", "EXPOSES"]
+    assert_path_is_a_witness(inferred)
+
+
+def test_an_api_subject_reports_its_consumers_through_the_exposing_provider(client):
+    """The API arm of the rule: consumers of this API, explained by its provider."""
+    token = login(client, ADMIN_EMAIL)
+    provider = client.post(
+        "/api/v1/services", headers=bearer(token), json={"name": "catalog-service"}
+    ).json()
+    first = client.post(
+        "/api/v1/services", headers=bearer(token), json={"name": "checkout-service"}
+    ).json()
+    second = client.post(
+        "/api/v1/services", headers=bearer(token), json={"name": "reporting-service"}
+    ).json()
+    api = client.post(
+        "/api/v1/apis",
+        headers=bearer(token),
+        json={"name": "GET /catalog", "method": "get", "path": "/catalog"},
+    ).json()
+    for src, rel in ((provider, "EXPOSES"), (first, "CONSUMES"), (second, "CONSUMES")):
+        client.post(
+            "/api/v1/relationships",
+            headers=bearer(token),
+            json={"relType": rel, "srcId": src["entityId"], "dstId": api["entityId"]},
+        )
+
+    report = analyze(client, token, {"subjectId": api["entityId"], "categories": ["INFERRED"]})
+    assert report["counts"]["INFERRED"] == 2
+    ids = sorted(f["entityId"] for f in report["findings"])
+    # Consumers, not the provider and not the API itself.
+    assert ids == sorted([first["entityId"], second["entityId"]])
+    for finding in report["findings"]:
+        # Both edges point at the analyzed API, so the witness chain runs through
+        # it: the exposing provider, the API, then the consuming service.
+        assert [e["entityId"] for e in finding["path"]["entities"]] == [
+            provider["entityId"],
+            api["entityId"],
+            finding["entityId"],
+        ]
+        assert [e["relType"] for e in finding["path"]["relationships"]] == ["EXPOSES", "CONSUMES"]
+        assert finding["depth"] == 2
+        assert_path_is_a_witness(finding)
+
+
 def test_reports_are_persisted_and_audited(client, engine):
     token = login(client, ADMIN_EMAIL)
     report = analyze(client, token, {"subjectId": REPO_ID, "categories": ["DIRECT"]})
