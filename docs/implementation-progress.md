@@ -127,3 +127,40 @@ machine: `docker compose build backend worker mcp-server`, `docker compose up -d
 then `docker compose run --rm backend ls /app/alembic/versions`. Backend suite:
 **316 passed, 7 skipped**; `ruff check .` clean, `ruff format .` 91 files unchanged,
 `mypy enggraph` strict clean over 55 source files. Fix commit: `f48cc55`.
+
+## Post-milestone 8: the operator scripts cannot import the package in the container
+
+`docker compose exec -it backend python scripts/create_user.py --email … --role admin
+--org demo` failed with `ModuleNotFoundError: No module named 'enggraph'`. The cause
+is `sys.path`: `python <path>/script.py` puts the **script's own directory** on it
+(`/app/scripts`), not the package root `/app`, and the backend image never
+pip-installs the package — the Dockerfile installs dependencies, then copies
+`enggraph/`. The same command works in a local checkout because this venv has the
+package installed (`pip install -e backend[dev]`), which is exactly why the suite and
+the previously documented command form passed here and the container defect stayed
+invisible.
+
+Three fixes:
+
+- `ENV PYTHONPATH=/app` in `backend/Dockerfile`, so `python scripts/X.py` finds
+  `enggraph` from any working directory in the image.
+- The portable form is `python -m scripts.<name>`: `-m` puts the **working directory**
+  on `sys.path`, so `enggraph` resolves in the container (`/app`) and in a checkout
+  (`cd backend`) with no install. `README.md`, `docs/development.md` and
+  `docs/troubleshooting.md` now show that form, `docs/development.md` states the rule,
+  and the container form for the first user is
+  `docker compose exec -it backend python -m scripts.create_user --email … --role
+  admin --org demo` (`-it` is needed for the password prompt).
+- Three compose-contract tests: every script in `backend/scripts/` must resolve as
+  `scripts.<name>` from the package root (the test inserts the package root on
+  `sys.path`, reproducing what `-m` does); the image must set `PYTHONPATH=/app`; and
+  every `README.md` + `docs/*.md` that names an operator script must name a file that
+  exists and show no `python scripts/X.py` command. The last test failed on its own
+  documentation first — the symptom row I had just added quoted the broken command
+  verbatim — so the row describes the invocation in words and the rule stays strict.
+
+Backend suite: **319 passed, 7 skipped** (the 7 neo4j-gated tests skip with an
+explicit reason); `ruff check .` clean, `ruff format .` 91 files unchanged,
+`mypy enggraph` strict clean over 55 source files. The container commands are
+verified on a machine with Docker, not in this shell. Fix commit: recorded in the
+following commit.

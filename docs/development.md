@@ -44,8 +44,16 @@ credentials each transport needs.
 Load the demo dataset (needs the stores running; `ENGGRAPH_MODE=demo`):
 
 ```bash
-cd backend && python scripts/demo_load.py --org demo
+cd backend && python -m scripts.demo_load --org demo
 ```
+
+Run scripts as modules (`python -m scripts.<name>`), not as file paths
+(`python scripts/<name>.py`). `-m` puts the **working directory** on `sys.path`, so
+`import enggraph` resolves in a checkout (`cd backend`) and in the container
+(`docker compose exec -it backend python -m scripts.demo_load --org demo`, where the
+working directory is `/app`). A file-path invocation puts the **script's own
+directory** on `sys.path` instead, so it fails with `ModuleNotFoundError: No module
+named 'enggraph'` in the image, where the package is copied, not pip-installed.
 
 Every record it writes carries `demoData=true`, `sourceSystem="demo"` and a
 `demoNote`; the loader refuses an organization that already holds provider or
@@ -86,9 +94,9 @@ no Node) and any skipped checks are recorded in
 - Graph schema: `cd backend && python -m enggraph.install_schema` — repeatable,
   every statement is `IF NOT EXISTS`.
 - Demo graph data (run from `backend/`):
-  `python scripts/demo_reset.py --org demo` (safe reset — deletes only
+  `python -m scripts.demo_reset --org demo` (safe reset — deletes only
   `demoData=true` nodes in that organization; provider and catalog records are
-  untouched) and `python scripts/demo_load.py --org demo --replace` (safe
+  untouched) and `python -m scripts.demo_load --org demo --replace` (safe
   reload). Both exit `2` with a named reason when the configuration is
   incomplete or Neo4j is unreachable, and the loader refuses an organization
   that already holds provider or manual catalog records.

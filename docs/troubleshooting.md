@@ -37,6 +37,7 @@ be matched to a log line.
 | `POSTGRES_PASSWORD is not set` (compose refuses to start a container) | `${POSTGRES_PASSWORD:?...}` guard | set it in `.env`; `.env.example` has the line |
 | `FAILED: Path doesn't exist: alembic. Please use the 'init' command to create a new scripts folder` (`backend` exits `255` at its first entrypoint command; postgres then logs `relation "sync_jobs" does not exist` and the worker's first `SELECT sync_jobs.id` fails, both because migrations never ran) | **the image is stale.** `docker compose up` reuses the image it already built, so editing the Dockerfile does nothing until `docker compose build` runs — only compose-file changes (env, commands) take effect immediately. A Dockerfile that copies `alembic.ini` without the directory its `script_location = alembic` names fails the same way: the ini is found, the migrations are not, and `alembic` runs from the image's `WORKDIR` (`/app`). | rebuild the images, then start: `docker compose build backend worker mcp-server` (all three build from `backend/`), `docker compose up -d`. Check the image content: `docker compose run --rm backend ls /app/alembic/versions`. The Dockerfile copies `alembic/` next to the ini, and `scripts/docker_entrypoint.sh` refuses **before** `alembic upgrade head` with `refused: the migrations directory is not in the image at /app/alembic. Rebuild the images: docker compose build backend worker mcp-server` (exit `2`), so a stale image names the fix instead of reporting a path. `tests/test_compose_contract.py` resolves `script_location` against the build context (`env.py`, `versions/*.py`) and against the `COPY` targets, and pins that the check precedes the migration command |
 | `configuration problem: ENGGRAPH_SESSION_SECRET is required (session signing)` from `worker-1`, exit `2` | the worker validates config at startup, and session signing is required in **demo mode as well as live mode** (the portal authenticates in both); the `worker` service's environment did not pass the secret | set it in `.env` (`python -c "import secrets;print(secrets.token_hex(32))"`) — `worker` and `mcp-server` now pass it with the `${ENGGRAPH_SESSION_SECRET:?set ENGGRAPH_SESSION_SECRET in .env}` guard, so compose refuses at parse time instead of starting a container that dies at every restart |
+| `ModuleNotFoundError: No module named 'enggraph'` when an operator script is run **by file path** inside the container (the script file is `scripts/create_user.py`, invoked as a path rather than as a module) | `python <path>/script.py` puts the **script's own directory** on `sys.path` (`/app/scripts`), not the package root `/app`, and the backend image never pip-installs the package — dependencies are installed, then `enggraph/` is copied. The same command works in a local checkout because `.venv` has the package installed (`pip install -e backend[dev]`), so the defect is invisible there. | run scripts as modules: `python -m scripts.create_user --email … --role admin --org demo`. `-m` puts the **working directory** on `sys.path`, so `enggraph` resolves in the container (`/app`) and in a checkout (`cd backend`) with no install needed. `PYTHONPATH=/app` in the Dockerfile makes the file-path form work from any directory too, so both forms run in the image. `tests/test_compose_contract.py` pins that every script in `backend/scripts/` resolves as `scripts.<name>` from the package root, that the image sets `PYTHONPATH=/app`, and that every documented operator command uses the `-m scripts.` form |
 | `Failed to read config: Unrecognized setting. No declared setting with name: X` (the neo4j container exits with code 1, and `backend`, `worker`, `mcp-server`, `frontend` all report `condition "service_healthy" of service "neo4j" not met`) | a `NEO4J_`-prefixed environment variable whose encoded name does not decode to a declared setting | the entrypoint maps every `NEO4J_` variable to a setting: prefix `NEO4J_`, name lowercase, **a period in the setting name is a single `_`, a real underscore is doubled (`__`)**. `dbms.security.auth_enabled` encodes as `NEO4J_dbms_security_auth__enabled`; doubling the wrong place gives a name like `dbms.security_auth.enabled`, which is not a setting, and `NEO4J_SERVER__PROPERTIES` (not a setting at all) fails the same way. The message names the decoded form, so read it and re-encode. One unparseable variable stops the store, and every app service gates on the neo4j healthcheck, so the cascade is expected, not separate failures. `tests/test_compose_contract.py` decodes the names the deployment uses and pins `dbms.security.auth_enabled` |
 | `python -m enggraph.mcp` exits `2` before opening a transport, logging `configuration problem: …` | half-configured MCP process | fix `.env`; the refusal is intentional — a misconfigured server never serves a partial surface |
 
@@ -221,8 +222,11 @@ Choose the narrowest reset that fixes the problem.
 ```bash
 # Demo graph data only (provider + manual catalog records untouched).
 cd backend
-python scripts/demo_reset.py             # --org demo by default
-python scripts/demo_load.py --org demo --replace   # safe reload: demo nodes first
+python -m scripts.demo_reset           # --org demo by default
+python -m scripts.demo_load --org demo --replace   # safe reload: demo nodes first
+# The same commands in the container (working directory /app):
+docker compose exec -it backend python -m scripts.demo_reset
+docker compose exec -it backend python -m scripts.demo_load --org demo --replace
 
 # Graph constraints/indexes only (repeatable).
 cd backend && python -m enggraph.install_schema
@@ -244,6 +248,9 @@ rather than doing a partial load. Reconciliation never deletes demo, manual
 catalog, or never-observed nodes, so a demo reset is not a side effect of a
 sync.
 
-`scripts/create_user.py --email … --role admin --org demo --min 12` prompts for
-the password (no `--password` flag) and prints
-`refused: email already registered: …` with exit `2` on a duplicate.
+`python -m scripts.create_user --email … --role admin --org demo --min 12` prompts
+for the password (no `--password` flag) and prints
+`refused: email already registered: …` with exit `2` on a duplicate. In the
+container, add `-it` for the password prompt:
+`docker compose exec -it backend python -m scripts.create_user --email … --role
+admin --org demo`.

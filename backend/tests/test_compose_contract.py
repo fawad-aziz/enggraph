@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import sys
 from pathlib import Path
 
 import yaml
@@ -302,3 +303,63 @@ def test_the_mcp_command_is_an_entry_point_and_the_published_port_is_the_bind_po
     assert package is not None and package.origin is not None
     entry = Path(package.origin).parent / "__main__.py"
     assert entry.is_file(), f"{entry} is missing, so `python -m enggraph.mcp` cannot run"
+
+
+SCRIPTS_DIR = BACKEND_DIR / "scripts"
+REPO_ROOT = COMPOSE_PATH.parent
+DOCUMENTS = [REPO_ROOT / "README.md", *sorted((REPO_ROOT / "docs").rglob("*.md"))]
+
+
+def test_every_operator_script_can_be_run_as_a_module_from_the_package_root():
+    """`python scripts/create_user.py` puts the script's own directory on `sys.path`
+    (`/app/scripts` in the image), not the package root, so `import enggraph` raises
+    `ModuleNotFoundError: No module named 'enggraph'` in the container, where the
+    package is copied and never pip-installed. `python -m scripts.create_user` puts the
+    working directory on `sys.path`, so the package resolves in the image (`/app`) and
+    in a checkout (`backend/`) with no install. The path insertion below reproduces what
+    `-m` does: the venv this suite runs in has the package installed
+    (`pip install -e backend[dev]`), which is exactly why the file-path form passes
+    locally and hides the container defect.
+    """
+    root = str(BACKEND_DIR)
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    names = sorted(path.stem for path in SCRIPTS_DIR.glob("*.py"))
+    assert names, "backend/scripts has no operator scripts"
+    for name in names:
+        assert importlib.util.find_spec(f"scripts.{name}") is not None, (
+            f"python -m scripts.{name} cannot be resolved from {root}"
+        )
+
+
+def test_the_image_makes_the_package_importable_from_any_working_directory():
+    """The image copies `enggraph/` rather than installing it, so a file-path script
+    invocation cannot import the package from `/app/scripts`. `PYTHONPATH=/app` makes
+    `python scripts/X.py` work from any working directory, so the older documented form
+    and the `python -m scripts.X` form both run in the container.
+    """
+    dockerfile = (BACKEND_DIR / "Dockerfile").read_text()
+    assert re.search(r"^ENV\s+PYTHONPATH=/app\s*$", dockerfile, re.MULTILINE), (
+        "the image must set PYTHONPATH=/app so a script can import enggraph"
+    )
+
+
+def test_documented_operator_commands_use_the_form_the_image_can_run():
+    """Every operator command the documentation shows must be runnable in the image. A
+    `python scripts/X.py` line works only in an interpreter that has the package
+    installed, so it is not portable to the container. Documents may name a script as a
+    file (a reference, not a command), so only command invocations are rejected, and any
+    script file a document names must exist.
+    """
+    offenders = []
+    missing = []
+    for document in DOCUMENTS:
+        text = document.read_text()
+        label = str(document.relative_to(REPO_ROOT))
+        for match in re.finditer(r"python\s+scripts/([a-z_]+)\.py", text):
+            offenders.append((label, match.group(0)))
+        for match in re.finditer(r"scripts/([a-z_]+)\.py", text):
+            if not (SCRIPTS_DIR / f"{match.group(1)}.py").is_file():
+                missing.append((label, match.group(1)))
+    assert offenders == [], f"file-path script invocations in the docs: {offenders}"
+    assert missing == [], f"scripts named in the docs do not exist: {missing}"
