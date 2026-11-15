@@ -105,5 +105,4 @@ started here):
 `docs/troubleshooting.md` gained both symptoms with the rebuild command. Backend
 suite: **315 passed, 7 skipped** (the 7 neo4j-gated tests still skip with an
 explicit reason); `ruff check .` clean, `ruff format .` 91 files unchanged,
-`mypy enggraph` strict clean over 55 source files. Fix commit: recorded in the
-following commit.
+`mypy enggraph` strict clean over 55 source files. Fix commit: `2e56052`.
