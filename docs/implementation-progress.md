@@ -126,5 +126,4 @@ the rebuild command, and that it stops the entrypoint. Verification on the Docke
 machine: `docker compose build backend worker mcp-server`, `docker compose up -d`,
 then `docker compose run --rm backend ls /app/alembic/versions`. Backend suite:
 **316 passed, 7 skipped**; `ruff check .` clean, `ruff format .` 91 files unchanged,
-`mypy enggraph` strict clean over 55 source files. Fix commit: recorded in the
-following commit.
+`mypy enggraph` strict clean over 55 source files. Fix commit: `f48cc55`.
