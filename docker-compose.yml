@@ -8,7 +8,13 @@ services:
       - "127.0.0.1:7474:7474"
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env}
-      NEO4J_SERVER__PROPERTIES: dbms.security.auth_enabled=true
+      # The entrypoint parses every NEO4J_ variable as a config setting, using the
+      # documented naming scheme (`NEO4J_` prefix, setting-name periods as `_`,
+      # real underscores doubled, lowercase). dbms.security.auth_enabled is true by
+      # default in Neo4j 5; it is stated explicitly here so auth is asserted, not
+      # assumed. A name the entrypoint cannot map stops the store, and the whole
+      # stack gates on the neo4j healthcheck.
+      NEO4J_dbms_security__auth_enabled: "true"
     volumes:
       - neo4j_data:/data
     healthcheck:

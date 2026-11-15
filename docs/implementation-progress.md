@@ -45,3 +45,18 @@ environment (this shell has no Node and no Docker). Re-run
 Backend suite after these edits: **312 passed, 7 skipped** (unchanged) —
 `tests/test_frontend_contract.py` parses the portal sources and stays green.
 Fix commit: `05a2363`.
+
+The first `docker compose up` also failed at the store: `NEO4J_SERVER__PROPERTIES`
+is not a config setting, so the Neo4j entrypoint refused to start
+(`Unrecognized setting. No declared setting with name: SERVER_PROPERTIES`) and
+every app service reported `condition "service_healthy" of service "neo4j" not
+met`. The deployment now uses the documented naming scheme
+(`NEO4J_` prefix, setting-name periods as `_`, real underscores doubled,
+lowercase): `NEO4J_dbms_security__auth_enabled: "true"`. Auth is stated
+explicitly, not assumed. `tests/test_compose_contract.py` gained a rule pinning
+the neo4j environment — every `NEO4J_` key the deployment sets must be a name
+the entrypoint can parse (`NEO4J_AUTH` exempted), which rejects the uppercase
+name that caused this failure. `docs/troubleshooting.md` gained the symptom and
+the reason the whole stack cascades. Backend suite: **313 passed, 7 skipped**.
+Container startup is verified on a machine with Docker, not in this shell.
+Fix commit: `_(this commit)_`.

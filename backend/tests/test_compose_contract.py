@@ -21,6 +21,7 @@ the compose file, not from a running container.
 from __future__ import annotations
 
 import importlib.util
+import re
 from pathlib import Path
 
 import yaml
@@ -117,6 +118,27 @@ def test_a_fresh_setup_bootstraps_the_stores_before_the_api_serves():
     assert text.index("install_schema") < text.index("uvicorn")
     for module in ("enggraph.install_schema", "enggraph.worker", "enggraph.main"):
         assert importlib.util.find_spec(module) is not None, module
+
+
+def test_the_neo4j_environment_names_only_settings_the_entrypoint_can_parse():
+    """The Neo4j entrypoint reads every `NEO4J_` variable as a config setting and
+    refuses to start on a name it cannot map (`Failed to read config: Unrecognized
+    setting. No declared setting with name: …`). The documented naming scheme is:
+    `NEO4J_` prefix, periods in the setting name written as `_`, real underscores
+    doubled, name in lowercase (`dbms.security.auth_enabled` →
+    `NEO4J_dbms_security__auth_enabled`). `NEO4J_SERVER__PROPERTIES` is not a
+    setting, and because every app service gates on the neo4j healthcheck, that one
+    line stops the whole stack — pinned here as a document, because no container is
+    started on this machine.
+    """
+    environment = _services()["neo4j"]["environment"]
+    name_pattern = re.compile(r"^NEO4J_[a-z0-9]+(?:_{1,2}[a-z0-9]+)*$")
+    for name in sorted(environment):
+        if name == "NEO4J_AUTH":
+            continue
+        assert name_pattern.match(name), f"{name} is not a name the entrypoint parses"
+    # The setting the deployment asserts (Neo4j 5 defaults it to true; stated, not assumed).
+    assert environment["NEO4J_dbms_security__auth_enabled"] == "true"
 
 
 def test_a_restart_reads_the_same_store_data_the_first_start_wrote():
