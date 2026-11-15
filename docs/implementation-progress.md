@@ -106,3 +106,25 @@ started here):
 suite: **315 passed, 7 skipped** (the 7 neo4j-gated tests still skip with an
 explicit reason); `ruff check .` clean, `ruff format .` 91 files unchanged,
 `mypy enggraph` strict clean over 55 source files. Fix commit: `2e56052`.
+
+The same `FAILED: Path doesn't exist: alembic` came back on the next start, now with
+postgres logging `relation "sync_jobs" does not exist` and the worker's first
+`SELECT sync_jobs.id` failing — both consequences of migrations that never ran. The
+worker's config refusal had disappeared, which fits the diagnosis: compose-file
+changes (env, commands) take effect immediately, and `docker compose up` reuses the
+image it has already built, so the Dockerfile fix was not in the running image. The
+Dockerfile in the repository is correct (`COPY alembic/ ./alembic/`), and `backend/`
+has no `.dockerignore`, so nothing excludes the directory at build time.
+
+The stale-image case now explains itself: `scripts/docker_entrypoint.sh` checks for
+its own `script_location` directory **before** `alembic upgrade head` and refuses
+with `refused: the migrations directory is not in the image at /app/alembic. Rebuild
+the images: docker compose build backend worker mcp-server` (exit `2`), instead of
+reporting a path. `test_the_entrypoint_refuses_before_alembic_when_the_image_has_no_migrations`
+pins the guard's presence, its position before the migration command, that it names
+the rebuild command, and that it stops the entrypoint. Verification on the Docker
+machine: `docker compose build backend worker mcp-server`, `docker compose up -d`,
+then `docker compose run --rm backend ls /app/alembic/versions`. Backend suite:
+**316 passed, 7 skipped**; `ruff check .` clean, `ruff format .` 91 files unchanged,
+`mypy enggraph` strict clean over 55 source files. Fix commit: recorded in the
+following commit.

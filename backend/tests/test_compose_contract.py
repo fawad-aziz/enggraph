@@ -120,6 +120,28 @@ def test_a_fresh_setup_bootstraps_the_stores_before_the_api_serves():
         assert importlib.util.find_spec(module) is not None, module
 
 
+def test_the_entrypoint_refuses_before_alembic_when_the_image_has_no_migrations():
+    """`docker compose up` reuses the image it has already built, so editing the
+    Dockerfile has no effect until `docker compose build` runs. The stale-image case
+    looks like a code bug: `alembic upgrade head` dies with `FAILED: Path doesn't
+    exist: alembic`, exit `255`, a message that names nothing the operator can act on,
+    while postgres reports `relation "sync_jobs" does not exist` because the
+    migrations never ran. The entrypoint checks for its own `script_location` directory
+    first and refuses with the rebuild command, so the failure explains itself. Order
+    matters: the check must precede the migration command, and it must refuse (exit
+    `2`), not continue.
+    """
+    entrypoint = _services()["backend"]["command"][1]
+    text = (BACKEND_DIR / entrypoint.removeprefix("/app/")).read_text()
+    guard = text.find("alembic/env.py")
+    assert guard != -1, "the entrypoint does not check for the migrations directory"
+    migration = text.index("alembic upgrade head")
+    assert guard < migration, "the check must run before `alembic upgrade head`"
+    block = text[guard:migration]
+    assert "docker compose build" in block, "the refusal must name the rebuild command"
+    assert "exit 2" in block, "the refusal must stop the entrypoint"
+
+
 def _copy_target(source: str, dest: str, root: str) -> str:
     """Where one `COPY` source lands in the image.
 
