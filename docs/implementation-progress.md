@@ -59,4 +59,4 @@ the entrypoint can parse (`NEO4J_AUTH` exempted), which rejects the uppercase
 name that caused this failure. `docs/troubleshooting.md` gained the symptom and
 the reason the whole stack cascades. Backend suite: **313 passed, 7 skipped**.
 Container startup is verified on a machine with Docker, not in this shell.
-Fix commit: `_(this commit)_`.
+Fix commit: `c79ce11`.
