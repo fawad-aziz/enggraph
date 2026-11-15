@@ -44,3 +44,4 @@ environment (this shell has no Node and no Docker). Re-run
 
 Backend suite after these edits: **312 passed, 7 skipped** (unchanged) —
 `tests/test_frontend_contract.py` parses the portal sources and stays green.
+Fix commit: `05a2363`.
