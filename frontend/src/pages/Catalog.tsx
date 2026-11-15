@@ -139,6 +139,36 @@ export function CatalogPage() {
         )}
       </Panel>
 
+      <Panel title="APIs" note="EngGraph-managed · endpoint contracts">
+        {apisQ.isPending && <Loading label="loading APIs…" />}
+        {apisQ.isError && <ErrorState error={apisQ.error} />}
+        {apisQ.data && apisQ.data.items.length === 0 && (
+          <EmptyState title="No APIs in the catalog" hint={isAdmin ? "Create one below." : "Ask an admin to create one."} />
+        )}
+        {apisQ.data && apisQ.data.items.length > 0 && (
+          <>
+            <ul className="result-list">
+              {apisQ.data.items.map((node) => (
+                <li key={node.entityId} className="result">
+                  <EntityLink node={node} />
+                  <ProvenanceTag provenance="MANUAL" />
+                  <span className="meta">
+                    {String(node.properties.method ?? "—")} {String(node.properties.path ?? "")} ·{" "}
+                    {String(node.properties.description ?? "")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <Pagination
+              total={apisQ.data.total}
+              limit={apisQ.data.limit}
+              offset={apisQ.data.offset}
+              onPage={setOffset}
+            />
+          </>
+        )}
+      </Panel>
+
       {isAdmin && (
         <>
           <Panel title="Create a service" note="admin-only · stamped as configured by you">

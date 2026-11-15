@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import cytoscape, { Core, ElementDefinition } from "cytoscape";
+import cytoscape, { Core, ElementDefinition, NodeSingular } from "cytoscape";
 import { neighborhood, pathsBetween } from "../api/client";
 import { NODE_TYPES, REL_TYPES } from "../api/types";
 import { EdgeRow, EntityLink } from "../components/entities";
@@ -109,13 +109,14 @@ export function ExplorerPage() {
         { selector: "edge.path", style: { width: 3, "line-color": "#8fd3a8", "target-arrow-color": "#8fd3a8" } },
         { selector: "edge.manual", style: { "line-style": "dashed", "line-color": "#7c8fa6" } },
       ],
-      layout: { name: "breadthfirst", spacing: 1.4, fit: true, padding: 20 },
+      layout: { name: "breadthfirst", spacingFactor: 1.4, fit: true, padding: 20 },
     });
     cyRef.current = cy;
-    // The clicked element is an element collection (structurally a `Core`), so
-    // one local alias is enough to read its id under strict typing.
+    // Cytoscape types `event.target` as `any` for a generic `on(...)` handler;
+    // the node selector guarantees a single node, so `NodeSingular` (which
+    // declares `id()`) is the honest alias.
     cy.on("click", "node", (event) => {
-      const clicked = event.target as Core;
+      const clicked = event.target as NodeSingular;
       navigate(`/entities/${encodeURIComponent(clicked.id())}`);
     });
     return () => {

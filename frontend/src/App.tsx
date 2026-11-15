@@ -47,7 +47,7 @@ function Shell() {
               key={item.to}
               to={item.to}
               end={item.end}
-              className={({ active }) => (active ? "nav-link active" : "nav-link")}
+              className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}
             >
               {item.label}
             </NavLink>

@@ -70,7 +70,7 @@ export function NewUserForm() {
           {busy ? "Creating…" : "Create user"}
         </button>
       </form>
-      {failure && <ErrorState error={failure} />}
+      {failure !== null && <ErrorState error={failure} />}
       {created && (
         <p className="state ok">
           <ProvenanceTag provenance="MANUAL" />
