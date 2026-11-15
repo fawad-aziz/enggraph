@@ -10,7 +10,13 @@ RUN pip install --no-cache-dir \
 COPY enggraph/ ./enggraph/
 COPY scripts/ ./scripts/
 COPY alembic.ini ./
-# Migrations directory is created in milestone 4; tolerate absence during early builds.
+# The entrypoint runs `alembic upgrade head` from WORKDIR /app, and
+# `script_location = alembic` in alembic.ini is resolved relative to the current
+# directory. So the migrations directory must be copied next to the ini, or the
+# first command of every container start fails with
+# `FAILED: Path doesn't exist: alembic`. tests/test_compose_contract.py checks the
+# ini's script_location against the build context and against these COPY lines.
+COPY alembic/ ./alembic/
 
 ENV PYTHONUNBUFFERED=1
 

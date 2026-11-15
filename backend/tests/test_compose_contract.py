@@ -120,6 +120,91 @@ def test_a_fresh_setup_bootstraps_the_stores_before_the_api_serves():
         assert importlib.util.find_spec(module) is not None, module
 
 
+def _copy_target(source: str, dest: str, root: str) -> str:
+    """Where one `COPY` source lands in the image.
+
+    A destination that ends in `/` is a directory, so the source is placed inside it:
+    a directory source's contents land at the destination itself, a file source lands
+    at `destination/<name>` (`COPY alembic.ini ./` puts the file at
+    `/app/alembic.ini`). A destination without a trailing slash is the target path as
+    written. A relative destination is joined onto the `WORKDIR`; `./` is the `WORKDIR`
+    itself."""
+    head = dest.rstrip("/")
+    base = (
+        root
+        if head in ("", ".")
+        else (head if head.startswith("/") else f"{root}/{head.lstrip('./')}")
+    )
+    if not dest.endswith("/"):
+        return base
+    return base if source.endswith("/") else f"{base}/{source.split('/')[-1]}"
+
+
+def _dockerfile_copies() -> list[tuple[list[str], str]]:
+    """`(sources, destination)` for every `COPY` line of the backend image."""
+    copies = []
+    for line in (BACKEND_DIR / "Dockerfile").read_text().splitlines():
+        stripped = line.strip()
+        if stripped.upper().startswith("COPY"):
+            tokens = stripped[len("COPY") :].split()
+            copies.append((tokens[:-1], tokens[-1]))
+    return copies
+
+
+def test_the_migrations_the_entrypoint_applies_are_in_the_image():
+    """The entrypoint's first command is `alembic upgrade head`, run from the image's
+    `WORKDIR`, and `script_location` in `alembic.ini` is resolved relative to the
+    current directory. An image that carries the ini but not the migrations directory
+    fails at the first command of every container start — `FAILED: Path doesn't
+    exist: alembic. Please use the 'init' command to create a new scripts folder`,
+    exit `255` — so the graph schema never runs and the API never serves. Pinned as a
+    document: the ini's `script_location` exists in the build context with `env.py`
+    and at least one migration, and the Dockerfile copies both the ini and that
+    directory into the `WORKDIR`."""
+    ini = (BACKEND_DIR / "alembic.ini").read_text()
+    declared = re.search(r"^script_location\s*=\s*(\S+)", ini, re.MULTILINE)
+    assert declared is not None, "alembic.ini declares no script_location"
+    directory = declared.group(1)
+    assert (BACKEND_DIR / directory / "env.py").is_file(), f"{directory}/env.py is missing"
+    versions = list((BACKEND_DIR / directory / "versions").glob("*.py"))
+    assert versions, f"{directory}/versions has no migrations"
+    dockerfile = (BACKEND_DIR / "Dockerfile").read_text()
+    workdir = re.search(r"^WORKDIR\s+(\S+)", dockerfile, re.MULTILINE)
+    assert workdir is not None, "the image declares no WORKDIR"
+    root = workdir.group(1)
+    targets = {
+        _copy_target(source, dest, root)
+        for sources, dest in _dockerfile_copies()
+        for source in sources
+    }
+    assert f"{root}/alembic.ini" in targets, (
+        f"alembic.ini is not copied to the WORKDIR, so `alembic` run from {root} "
+        f"cannot find its ini; the image copies {sorted(targets)}"
+    )
+    assert f"{root}/{directory}" in targets, (
+        f"{directory}/ is not copied to {root}/{directory}, so `alembic upgrade head` "
+        f"run from {root} reports `Path doesn't exist: {directory}`; the image copies "
+        f"{sorted(targets)}"
+    )
+
+
+def test_the_enggraph_services_receive_the_inputs_their_config_validation_requires():
+    """`validate_runtime` refuses a process that cannot sign sessions — required in
+    demo mode as well as live mode, because the portal authenticates in both — and a
+    process whose graph password is empty. The refusal is a `configuration problem:
+    …` log line and exit `2`, which is why a worker service that starts without
+    `ENGGRAPH_SESSION_SECRET` dies at startup while the backend runs. Every service
+    that runs an enggraph process must receive both values, as `.env` substitutions:
+    a literal password in a compose file is a credential in the repository."""
+    required = ("ENGGRAPH_SESSION_SECRET", "NEO4J_PASSWORD")
+    for name in ("backend", "worker", "mcp-server"):
+        environment = _services()[name]["environment"]
+        for key in required:
+            value = environment.get(key, "")
+            assert value.startswith("${"), f"{name} sets {key} to a literal"
+            assert key in value, f"{name} sets {key} from a different variable"
+
+
 def _decoded_setting(env_name: str) -> str:
     """Reproduce the entrypoint's decoding: a single `_` in the encoded name is a
     period in the setting, a doubled `__` is a real underscore. The order matters —

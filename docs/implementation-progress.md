@@ -71,3 +71,39 @@ example. `docs/troubleshooting.md` gained the symptom, the encoding rule, and th
 reason the stack cascades. Backend suite: **313 passed, 7 skipped**. Container
 startup is verified on a machine with Docker, not in this shell. Fix commit:
 `893f453`.
+
+## Post-milestone 8: the stores started, then the app services failed
+
+With the corrected neo4j environment the stores came up, and the first real
+`docker compose up` reached the application services, which failed for two
+independent deployment defects. Both are fixed here; neither is verified in this
+shell (no Docker), so the rebuild + `docker compose up` result must be recorded by
+the machine that has Docker.
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `backend-1 | FAILED: Path doesn't exist: alembic. Please use the 'init' command to create a new scripts folder`, exit `255` | `script_location = alembic` in `alembic.ini` is resolved relative to the entrypoint's working directory (`WORKDIR /app`), and the Dockerfile copied `enggraph/`, `scripts/` and `alembic.ini` — not `alembic/`. A stale comment ("Migrations directory is created in milestone 4; tolerate absence during early builds") had kept the omission after the migrations existed, so every container start died at its first command: migrations never applied, graph schema never installed, API never served | `COPY alembic/ ./alembic/` in `backend/Dockerfile`, with the comment replaced by the rule it violated |
+| `worker-1 | {"level":"ERROR","message":"configuration problem: ENGGRAPH_SESSION_SECRET is required (session signing)"}`, exit `2` | `validate_runtime` requires session signing in **demo mode as well as live mode** (`enggraph/config.py:64`), and the `worker` service's `environment` never passed the secret the backend gets | `worker` and `mcp-server` now pass it as `${ENGGRAPH_SESSION_SECRET:?set ENGGRAPH_SESSION_SECRET in .env}`, so compose refuses at parse time with that message instead of starting a container that dies at every restart |
+
+Two compose-contract tests were added, both pinned as documents (no container is
+started here):
+
+- `test_the_migrations_the_entrypoint_applies_are_in_the_image` reads
+  `script_location` from `alembic.ini`, checks `env.py` and `versions/*.py` exist in
+  the build context, resolves the image's `WORKDIR`, and resolves every `COPY` line
+  to where its source lands — a destination ending in `/` takes a file source under
+  its own name (`COPY alembic.ini ./` → `/app/alembic.ini`) and a directory source's
+  contents land at the destination itself (`COPY alembic/ ./alembic/` →
+  `/app/alembic`). The assertion is that both `alembic.ini` and the migrations
+  directory land in the `WORKDIR`, which is where `alembic` looks.
+- `test_the_enggraph_services_receive_the_inputs_their_config_validation_requires`
+  asserts every service that runs an enggraph process (`backend`, `worker`,
+  `mcp-server`) passes `ENGGRAPH_SESSION_SECRET` and `NEO4J_PASSWORD`, and that each
+  value is a `.env` substitution — a literal password in a compose file is a
+  credential in the repository.
+
+`docs/troubleshooting.md` gained both symptoms with the rebuild command. Backend
+suite: **315 passed, 7 skipped** (the 7 neo4j-gated tests still skip with an
+explicit reason); `ruff check .` clean, `ruff format .` 91 files unchanged,
+`mypy enggraph` strict clean over 55 source files. Fix commit: recorded in the
+following commit.
