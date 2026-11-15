@@ -46,17 +46,28 @@ Backend suite after these edits: **312 passed, 7 skipped** (unchanged) —
 `tests/test_frontend_contract.py` parses the portal sources and stays green.
 Fix commit: `05a2363`.
 
-The first `docker compose up` also failed at the store: `NEO4J_SERVER__PROPERTIES`
-is not a config setting, so the Neo4j entrypoint refused to start
-(`Unrecognized setting. No declared setting with name: SERVER_PROPERTIES`) and
-every app service reported `condition "service_healthy" of service "neo4j" not
-met`. The deployment now uses the documented naming scheme
-(`NEO4J_` prefix, setting-name periods as `_`, real underscores doubled,
-lowercase): `NEO4J_dbms_security__auth_enabled: "true"`. Auth is stated
-explicitly, not assumed. `tests/test_compose_contract.py` gained a rule pinning
-the neo4j environment — every `NEO4J_` key the deployment sets must be a name
-the entrypoint can parse (`NEO4J_AUTH` exempted), which rejects the uppercase
-name that caused this failure. `docs/troubleshooting.md` gained the symptom and
-the reason the whole stack cascades. Backend suite: **313 passed, 7 skipped**.
-Container startup is verified on a machine with Docker, not in this shell.
-Fix commit: `c79ce11`.
+The first `docker compose up` failed at the store twice, and both failures came
+from the same rule: the Neo4j entrypoint reads every `NEO4J_` variable as a
+**config setting name**, lowercased, with a period in the setting written as a
+single `_` and a real underscore doubled (`__`). A name that does not decode to a
+declared setting makes the store exit 1 with `Failed to read config: Unrecognized
+setting. No declared setting with name: …`, and because every app service gates on
+the neo4j healthcheck, the whole stack fails from that one line.
+
+1. `NEO4J_SERVER__PROPERTIES: dbms.security.auth_enabled=true` — not a setting;
+   decoded as `SERVER_PROPERTIES`. Fixed commit `c79ce11`.
+2. `NEO4J_dbms_security__auth_enabled` — the doubled underscore was on the
+   separator, so it decoded as `dbms.security_auth.enabled`. Correct encoding of
+   `dbms.security.auth_enabled` is `NEO4J_dbms_security_auth__enabled`. Fixed in
+   the commit below.
+
+The deployment now sets `NEO4J_dbms_security_auth__enabled: "true"` (auth is true
+by default in Neo4j 5; stated, not assumed). `tests/test_compose_contract.py`
+gained `_decoded_setting()`, which reproduces the entrypoint's decoding (`__` →
+`_`, then `_` → `.`), asserts every `NEO4J_` key in the neo4j service matches the
+name shape, and pins that the encoded key decodes to `dbms.security.auth_enabled` —
+the two observed failures are asserted as the wrong forms, so the rule is pinned by
+example. `docs/troubleshooting.md` gained the symptom, the encoding rule, and the
+reason the stack cascades. Backend suite: **313 passed, 7 skipped**. Container
+startup is verified on a machine with Docker, not in this shell. Fix commit:
+`_(this commit)_`.
