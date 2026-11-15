@@ -70,4 +70,4 @@ the two observed failures are asserted as the wrong forms, so the rule is pinned
 example. `docs/troubleshooting.md` gained the symptom, the encoding rule, and the
 reason the stack cascades. Backend suite: **313 passed, 7 skipped**. Container
 startup is verified on a machine with Docker, not in this shell. Fix commit:
-`_(this commit)_`.
+`893f453`.
